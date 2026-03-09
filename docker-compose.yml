@@ -74,7 +74,7 @@ services:
     volumes:
     # Using customized application.yml to override default configs.
     #   - /host/path/to/customized/application.yml:/app/config/application.yml
-      - /home/a/CBNU_KHB/Intern_Study/03_dataset/data_custom/zenix_snow_260124_KITTI/18_2026-01-24-02-13-02:/app/data/zenix_snow
+      - /home/a/dataset_custom/zenix_dataset/dataset_0124:/app/data/zenix_snow
     healthcheck:
       test:
         [
@@ -123,7 +123,7 @@ services:
       - model
     runtime: nvidia
   point-cloud-object-detection:
-    image: my-custom-xtreme1:v5  # <--- v5로 변경
+    image: kanghanbin/my-custom-xtreme1:v5  # <--- v5로 변경
     ports:
       - 8293:5000
     # You need to explicitly specify model profile to start this service.

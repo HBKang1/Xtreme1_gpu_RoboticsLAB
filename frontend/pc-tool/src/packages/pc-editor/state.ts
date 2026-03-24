@@ -37,6 +37,7 @@ export interface IState {
 
     classifications: IClassification[];
     isSeriesFrame: boolean;
+    isMultiFrame: boolean;
     currentClass: string;
     models: IModel[];
     modelConfig: IModelConfig;
@@ -67,6 +68,7 @@ export function getDefaultState(): IState {
 
         classifications: [],
         isSeriesFrame: false,
+        isMultiFrame: false,
         currentClass: '',
         models: [],
         modelConfig: {

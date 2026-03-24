@@ -425,6 +425,14 @@ export default class DataManager {
             frameN: 1,
         });
     }
+    copyAllForward() {
+        return this.track({
+            direction: 'FORWARD',
+            object: 'all',
+            method: 'copy',
+            frameN: 1,
+        });
+    }
     async track(option: {
         method: 'copy' | 'model';
         object: 'select' | 'all';

@@ -157,6 +157,23 @@
                         </template>
                     </a-button>
                 </a-tooltip>
+
+                <a-tooltip v-if="canEdit()" placement="top">
+                    <template #title>Copy All to Next Frame (Alt+Shift+→)</template>
+                    <a-button
+                        :disabled="disable"
+                        @click="() => onAction('CopyAllForward')"
+                        style="width: 50px"
+                    >
+                        <template #icon>
+                            <div>
+                                <CopyOutlined style="margin-right: -4px; font-size: 14px" />
+                                <CopyOutlined style="margin-right: -4px; font-size: 14px" />
+                                <StepForwardOutlined />
+                            </div>
+                        </template>
+                    </a-button>
+                </a-tooltip>
             </div>
         </div>
         <div class="bar-right" v-show="!isCheck()" v-if="canEdit()">
@@ -224,6 +241,7 @@
     type IBarAction =
         | 'CopyForward'
         | 'CopyBackward'
+        | 'CopyAllForward'
         | 'AutoLoad'
         | 'Replay'
         | 'PreFrame'
@@ -259,6 +277,10 @@
 
             case 'CopyBackward':
                 editor.dataManager.copyBackWard();
+                break;
+
+            case 'CopyAllForward':
+                editor.dataManager.copyAllForward();
                 break;
             case 'Replay':
                 rePlay();

@@ -110,7 +110,7 @@ export const pickObject = define({
 });
 export const copyForward = define({
     valid(editor: Editor) {
-        return editor.state.isSeriesFrame;
+        return editor.state.isSeriesFrame || editor.state.frames.length > 1;
     },
     execute(editor: Editor) {
         editor.dataManager.copyForward();
@@ -118,10 +118,18 @@ export const copyForward = define({
 });
 export const copyBackWard = define({
     valid(editor: Editor) {
-        return editor.state.isSeriesFrame;
+        return editor.state.isSeriesFrame || editor.state.frames.length > 1;
     },
     execute(editor: Editor) {
         editor.dataManager.copyBackWard();
+    },
+});
+export const copyAllForward = define({
+    valid(editor: Editor) {
+        return editor.state.isSeriesFrame || editor.state.frames.length > 1;
+    },
+    execute(editor: Editor) {
+        editor.dataManager.copyAllForward();
     },
 });
 

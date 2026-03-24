@@ -45,6 +45,7 @@ export default function useTool() {
                 bsState.recordId,
             );
             state.isSeriesFrame = isSeriesFrame;
+            state.isMultiFrame = !isSeriesFrame && dataInfos.length > 1;
             bsState.seriesFrameId = seriesFrameId;
             let dataId = bsState.query.dataId;
             if (dataId) {

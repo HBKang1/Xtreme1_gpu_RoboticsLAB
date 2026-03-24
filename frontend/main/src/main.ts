@@ -20,8 +20,8 @@ import placeImg from '/@/assets/images/placeImg.png';
 import { setupLazyLoadDirective } from './directives/lazy';
 
 import JsonViewer from 'vue3-json-viewer';
-//添加样式
-import 'vue3-json-viewer/dist/index.css';
+// CSS bundled with component JS; standalone import removed to fix Vite/Rollup resolution error
+// import 'vue3-json-viewer/dist/index.css';
 
 // Importing on demand in local development will increase the number of browser requests by around 20%.
 // This may slow down the browser refresh speed.

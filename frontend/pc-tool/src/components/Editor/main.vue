@@ -11,7 +11,7 @@
                 <template #side-view><SideView /></template>
             </Layout>
         </div>
-        <div class="frame-wrap" v-if="state.isSeriesFrame">
+        <div class="frame-wrap" v-if="state.isSeriesFrame || state.frames.length > 1">
             <TimeLine :config="{ noModelTrack: true }" />
         </div>
     </div>

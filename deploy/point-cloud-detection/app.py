@@ -11,9 +11,19 @@ from os.path import join, dirname, abspath
 import gc
 
 # tracking parameters (initial values; tune during Zenix validation)
-TRACK_MATCH_GATE_M = 2.0        # max BEV center distance for seed<->detection match
+TRACK_MATCH_GATE_M = 2.0        # base BEV gate for seed<->detection match
+TRACK_GATE_GROWTH = 0.5         # gate grows 50% per consecutive miss (CV error accumulates)
+TRACK_GATE_MAX_M = 4.0          # gate ceiling
 TRACK_SCORE_FLOOR = 0.1         # detections below this score are not match candidates
 TRACK_FALLBACK_CONFIDENCE = 0.1
+TRACK_MAX_MISSES = 5            # deactivate a track after this many consecutive misses
+TRACK_SNAP_MIN_POINTS = 10      # min in-box points for a fallback to snap onto the cloud
+TRACK_SNAP_RADIUS_SCALE = 0.75  # BEV snap window = max(length, width) * this
+
+
+def ang_diff(a: float, b: float) -> float:
+    """Signed smallest angle difference a-b, in (-pi, pi]."""
+    return (a - b + np.pi) % (2 * np.pi) - np.pi
 
 # browser-facing presigned URLs look like {scheme}://{gateway}/minio/<bucket>/<obj>?<sig>.
 # the MinIO signature is computed for the path AFTER nginx strips /minio, so the
@@ -167,12 +177,15 @@ class TrackHandler(AppHandler):
         args = self.args
         seeds = self.get_field(args, key='seedObjects', type_=list, check_empty=True)
         frames = self.get_field(args, key='frames', type_=list, check_empty=True)
+        keep = args.get('keep') or {}
+        keep_z = bool(keep.get('z', True))          # keep seed height instead of detection z
+        keep_rot = bool(keep.get('rotation', True))  # keep seed heading instead of detection heading
 
-        tracks = [self._build_track(seed) for seed in seeds]
+        tracks = [self._build_track(seed, keep_z) for seed in seeds]
 
         # frames are processed in order: each frame's outcome (matched position or
         # constant-velocity prediction) becomes the next frame's reference
-        results = [self._track_frame(frame, tracks) for frame in frames]
+        results = [self._track_frame(frame, tracks, keep_z, keep_rot) for frame in frames]
 
         gc.collect()
         self.return_ok(results)
@@ -181,20 +194,33 @@ class TrackHandler(AppHandler):
     def _vec(d):
         return np.array([d['x'], d['y'], d['z']], dtype=np.float64)
 
-    def _build_track(self, seed):
+    def _build_track(self, seed, keep_z):
         pos = self._vec(seed['center3D'])
         prev = seed.get('prevCenter3D') or None
         vel = pos - self._vec(prev) if prev else np.zeros(3, dtype=np.float64)
+        if keep_z:
+            vel[2] = 0.0
         return {
             'id': seed['trackingId'],
             'pos': pos,
             'vel': vel,
             'size': seed['size3D'],
             'rot': seed['rotation3D'],
+            'heading': float(seed['rotation3D']['z']),
+            'miss': 0,
+            'active': True,
         }
 
-    def _track_frame(self, frame, tracks):
+    @staticmethod
+    def _gate(track):
+        return min(TRACK_MATCH_GATE_M * (1 + TRACK_GATE_GROWTH * track['miss']),
+                   TRACK_GATE_MAX_M)
+
+    def _track_frame(self, frame, tracks, keep_z, keep_rot):
         frame_id = frame.get('id')
+        active = [t for t in tracks if t['active']]
+        if not active:
+            return {'id': frame_id, 'code': 'OK', 'message': '', 'objects': []}
         try:
             t = Timing()
             url = normalize_pcd_url(frame['pointCloudUrl'])
@@ -206,23 +232,50 @@ class TrackHandler(AppHandler):
 
             boxes = det['pred_boxes']
             scores = det['pred_scores']
-            keep = scores >= TRACK_SCORE_FLOOR
-            boxes, scores = boxes[keep], scores[keep]
+            score_mask = scores >= TRACK_SCORE_FLOOR
+            boxes, scores = boxes[score_mask], scores[score_mask]
 
-            matches = self._greedy_match(tracks, boxes)
+            matches = self._greedy_match(active, boxes)
             objects = []
-            for i, track in enumerate(tracks):
+            snap_count = 0
+            for i, track in enumerate(active):
                 j = matches.get(i)
                 if j is not None:
                     new_pos = boxes[j, :3].astype(np.float64)
+                    if keep_z:
+                        new_pos[2] = track['pos'][2]
+                    # front/back ambiguity: flip detection heading if it is more
+                    # than 90 degrees away from the track's current heading
+                    det_heading = float(boxes[j, 6])
+                    if abs(ang_diff(det_heading, track['heading'])) > np.pi / 2:
+                        det_heading = ang_diff(det_heading + np.pi, 0.0)
+                    if not keep_rot:
+                        track['heading'] = det_heading
                     track['vel'] = new_pos - track['pos']
                     track['pos'] = new_pos
-                    rot_z = float(boxes[j, 6])
+                    track['miss'] = 0
                     confidence = float(scores[j])
                 else:
-                    track['pos'] = track['pos'] + track['vel']
-                    rot_z = float(track['rot']['z'])
+                    pred = track['pos'] + track['vel']
+                    snap_xy = self._snap_to_points(pc, pred, track['size'], self._gate(track))
+                    if snap_xy is not None:
+                        new_pos = np.array([snap_xy[0], snap_xy[1], pred[2]])
+                        snap_count += 1
+                    else:
+                        new_pos = pred.copy()
+                    if keep_z:
+                        new_pos[2] = track['pos'][2]
+                    if snap_xy is not None:
+                        # snapping is weak evidence: let it steer the velocity too
+                        track['vel'] = new_pos - track['pos']
+                    track['pos'] = new_pos
+                    track['miss'] += 1
                     confidence = TRACK_FALLBACK_CONFIDENCE
+                    if track['miss'] > TRACK_MAX_MISSES:
+                        track['active'] = False
+                        logging.info(f"TRACK {track['id']}: deactivated after "
+                                     f"{track['miss']} consecutive misses")
+                        continue
                 objects.append({
                     'trackingId': track['id'],
                     'center3D': {'x': float(track['pos'][0]),
@@ -231,34 +284,56 @@ class TrackHandler(AppHandler):
                     'size3D': track['size'],
                     'rotation3D': {'x': float(track['rot']['x']),
                                    'y': float(track['rot']['y']),
-                                   'z': rot_z},
+                                   'z': float(track['heading'])},
                     'confidence': confidence,
                 })
             logging.info(f"TRACK {frame_id}: {len(boxes)} detections, "
-                         f"{len(matches)}/{len(tracks)} matched")
+                         f"{len(matches)}/{len(active)} matched, {snap_count} snapped")
             return {'id': frame_id, 'code': 'OK', 'message': '', 'objects': objects}
         except Exception as e:
             logging.exception(e)
-            # keep the chain alive: advance every track by its velocity so the
-            # next frame's matching does not use a stale reference
-            for track in tracks:
+            # keep the chain alive: advance active tracks by velocity so the next
+            # frame's matching does not use a stale reference (no miss counted —
+            # a download/server error says nothing about the object)
+            for track in active:
                 track['pos'] = track['pos'] + track['vel']
             return {'id': frame_id, 'code': 'SystemError', 'message': str(e), 'objects': []}
 
     @staticmethod
-    def _greedy_match(tracks, boxes):
+    def _snap_to_points(pc, pred, size, max_shift):
+        """Fallback refinement: median BEV center of points inside the predicted
+        box footprint (square window, z limited to the box's vertical span above
+        ground level). Returns xy or None when too few points."""
+        radius = max(float(size['x']), float(size['y'])) * TRACK_SNAP_RADIUS_SCALE
+        mask = (np.abs(pc[:, 0] - pred[0]) < radius) & (np.abs(pc[:, 1] - pred[1]) < radius)
+        pts = pc[mask]
+        z_lo = pred[2] - float(size['z']) / 2 + 0.3   # skip road-surface points
+        z_hi = pred[2] + float(size['z']) / 2 + 0.5
+        pts = pts[(pts[:, 2] > z_lo) & (pts[:, 2] < z_hi)]
+        if len(pts) < TRACK_SNAP_MIN_POINTS:
+            return None
+        center = np.median(pts[:, :2], axis=0)
+        shift = center - pred[:2]
+        dist = float(np.linalg.norm(shift))
+        if dist > max_shift:   # never jump further than the matching gate
+            center = pred[:2] + shift / dist * max_shift
+        return center
+
+    @classmethod
+    def _greedy_match(cls, tracks, boxes):
         """Greedy 1:1 assignment of tracks to detections by BEV center distance.
-        Returns {track_index: detection_index} for pairs within TRACK_MATCH_GATE_M."""
+        Each track's gate widens with its consecutive-miss count."""
         matches = {}
         if len(boxes) == 0 or len(tracks) == 0:
             return matches
+        gates = np.array([cls._gate(t) for t in tracks])
         predicted = np.stack([t['pos'] + t['vel'] for t in tracks])     # (T, 3)
         dists = np.linalg.norm(
             predicted[:, None, :2] - boxes[None, :, :2], axis=2)       # (T, D)
         pairs = [(dists[i, j], i, j)
                  for i in range(dists.shape[0])
                  for j in range(dists.shape[1])
-                 if dists[i, j] <= TRACK_MATCH_GATE_M]
+                 if dists[i, j] <= gates[i]]
         used_dets = set()
         for _, i, j in sorted(pairs):
             if i in matches or j in used_dets:

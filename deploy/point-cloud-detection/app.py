@@ -26,7 +26,7 @@ def normalize_pcd_url(url: str) -> str:
 
 
 def download_and_clean(pcd_url: str, t=None):
-    r = requests.get(pcd_url, allow_redirects=True)
+    r = requests.get(pcd_url, allow_redirects=True, timeout=60)
     r.raise_for_status()
     if t:
         t.log_interval(f"DOWNLOAD pcd({len(r.content)/1024/1024:.2g}MB)")
@@ -155,18 +155,12 @@ class AppHandler(BaseApiHandler):
         }
 
 
-class TrackHandler(BaseApiHandler):
+class TrackHandler(AppHandler):
     """Prototype tracking endpoint: propagate seed boxes over target frames by
     re-detecting each frame and matching detections to seeds (BEV nearest within
     a gate); unmatched seeds advance by constant velocity with low confidence.
-    Called directly from pc-tool via the gateway nginx (no Java backend involved)."""
-
-    # override: Called for each request.
-    def initialize(self, cfg_file: str, ckpt: str):
-        if AppHandler.predictor is None:
-            AppHandler.predictor = Predictor(cfg_file=cfg_file, ckpt=ckpt)
-            AppHandler.full_nms = AppHandler._supports_full_nms(AppHandler.predictor.model)
-            logging.info(f"full_nms={AppHandler.full_nms} (auto-detected from cfg)")
+    Called directly from pc-tool via the gateway nginx (no Java backend involved).
+    Inherits initialize() (shared predictor) from AppHandler."""
 
     # override
     def post(self):

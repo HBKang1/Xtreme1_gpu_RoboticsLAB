@@ -426,10 +426,8 @@ export default class DataManager {
             });
 
             let objectsMap = {} as Record<string, IObject[]>;
-            let okCount = 0;
             (results || []).forEach((frameResult: any) => {
                 if (!frameResult || frameResult.code !== 'OK') return;
-                okCount++;
                 let objects = (frameResult.objects || [])
                     .filter((e: any) => {
                         if (curTrackIds.has(e.trackingId)) return true;
@@ -445,17 +443,18 @@ export default class DataManager {
                 if (objects.length > 0) objectsMap[frameResult.id + ''] = objects;
             });
 
-            if (okCount === 0 || Object.keys(objectsMap).length === 0) {
+            let appliedCount = Object.keys(objectsMap).length;
+            if (appliedCount === 0) {
                 editor.showMsg('error', editor.lang('track-no-data'));
                 return;
             }
 
             editor.modelManager.addModelTrackData(objectsMap);
 
-            if (okCount < toIds.length) {
+            if (appliedCount < toIds.length) {
                 editor.showMsg(
                     'warning',
-                    editor.lang('track-partial', { n: okCount, m: toIds.length }),
+                    editor.lang('track-partial', { n: appliedCount, m: toIds.length }),
                 );
             } else {
                 editor.showMsg('success', editor.lang('track-ok'));

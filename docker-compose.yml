@@ -134,12 +134,12 @@ services:
     
     # [▼ 아래 두 줄을 꼭 추가해주세요!]
     working_dir: /app/pcdet_open
-    # [TransFusion-L] 되돌리려면 volumes 2줄과 entrypoint를 주석 처리하고 아래 원본 entrypoint 주석 해제
-    volumes:
-      - ./cbgs_transfusion_lidar.pth:/app/cbgs_transfusion_lidar.pth:ro
-      - ./deploy/point-cloud-detection/app.py:/app/pcdet_open/app.py:ro
-    entrypoint: ["python", "app.py", "/app/cbgs_transfusion_lidar.pth"]
-    # entrypoint: ["python", "app.py", "../cbgs_voxel0075_centerpoint_nds_6648.pth"]  # 원본(CenterPoint)
+    # [TransFusion-L] 다시 쓰려면 아래 volumes 2줄과 entrypoint 주석 해제, 원본 entrypoint 주석 처리
+    # volumes:
+    #   - ./cbgs_transfusion_lidar.pth:/app/cbgs_transfusion_lidar.pth:ro
+    #   - ./deploy/point-cloud-detection/app.py:/app/pcdet_open/app.py:ro
+    # entrypoint: ["python", "app.py", "/app/cbgs_transfusion_lidar.pth"]
+    entrypoint: ["python", "app.py", "../cbgs_voxel0075_centerpoint_nds_6648.pth"]  # 원본(CenterPoint)
 volumes:
   mysql-data:
   redis-data:

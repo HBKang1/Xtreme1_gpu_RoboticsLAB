@@ -54,6 +54,22 @@ export default class BusinessManager extends BaseBusinessManager {
         return valueMap;
     }
 
+    // tracking prototype: resolve each target frame's pcd url (same source as
+    // loadFrameConfig) and call the model serving directly via the gateway proxy
+    async runModelTrack(params: {
+        seedObjects: any[];
+        frames: { id: string }[];
+    }): Promise<any[]> {
+        const frames = await Promise.all(
+            params.frames.map(async (f) => {
+                let { configs } = await api.getDataFile(f.id + '');
+                let info = utils.createViewConfig(configs, []);
+                return { id: f.id, pointCloudUrl: info.pointsUrl };
+            }),
+        );
+        return await api.runTrack({ seedObjects: params.seedObjects, frames });
+    }
+
     async getFrameObject(frame: IFrame | IFrame[]): Promise<{
         objectsMap: Record<string, IObject[]>;
         classificationMap: Record<string, IObject[]>;

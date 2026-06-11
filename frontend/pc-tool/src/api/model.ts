@@ -43,3 +43,14 @@ export async function runModel(config: any) {
     let url = '/api/data/modelAnnotate';
     return await post(url, config);
 }
+
+// tracking prototype: direct call to model serving via the gateway /modelApi/ proxy
+// (no Java backend involved); returns per-frame results
+export async function runTrack(payload: {
+    seedObjects: any[];
+    frames: { id: string; pointCloudUrl: string }[];
+}) {
+    let url = '/modelApi/pointCloud/track';
+    let data: any = await post(url, payload);
+    return data.data || [];
+}

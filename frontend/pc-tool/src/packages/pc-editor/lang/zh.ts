@@ -58,6 +58,9 @@ const zh: ILocale = {
     newBadge: '新',
     copyLeft1: '向左复制一帧(Alt+←)',
     copyRight1: '向右复制一帧(Alt+→)',
+    trackRight1: '向右追踪选中对象N帧(模型)',
+    trackAllRight1: '向右追踪全部对象N帧(模型)',
+    'track-partial': '{{n}}/{{m}} 帧追踪成功',
 };
 
 export { zh };

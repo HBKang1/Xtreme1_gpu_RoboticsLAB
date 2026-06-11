@@ -58,6 +58,9 @@ const en = {
     newBadge: 'New',
     copyLeft1: 'Copy one frame backward (Alt+←)',
     copyRight1: 'Copy one frame forward (Alt+→)',
+    trackRight1: 'Track selection N frames forward (model)',
+    trackAllRight1: 'Track all N frames forward (model)',
+    'track-partial': '{{n}}/{{m}} frames tracked',
 };
 
 export type ILocale = typeof en;

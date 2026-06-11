@@ -193,8 +193,8 @@ export function addModelTrackData(editor: Editor, objectsMap: Record<string, IOb
             editor.cmdManager.execute('update-object-user-data', updateDatas);
         }
 
-        // if (updateTrans.objects.length > 0) {
-        //     editor.cmdManager.execute('update-transform-batch', updateTrans);
-        // }
+        if (updateTrans.objects.length > 0) {
+            editor.cmdManager.execute('update-transform-batch', updateTrans);
+        }
     });
 }

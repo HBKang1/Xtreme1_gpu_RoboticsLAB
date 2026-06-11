@@ -12,11 +12,23 @@ import gc
 
 class AppHandler(BaseApiHandler):
     predictor = None
+    full_nms = True
+
+    @staticmethod
+    def _supports_full_nms(model):
+        # query-based models (e.g. TransFusion) have no DENSE_HEAD.POST_PROCESSING.NMS_CONFIG;
+        # calling Predictor with full_nms=True would raise KeyError for them
+        try:
+            return 'NMS_CONFIG' in model.model_cfg.DENSE_HEAD.POST_PROCESSING
+        except (AttributeError, KeyError, TypeError):
+            return False
 
     # override: Called for each request.
     def initialize(self, cfg_file: str, ckpt: str):
         if AppHandler.predictor is None:
             AppHandler.predictor = Predictor(cfg_file=cfg_file, ckpt=ckpt)
+            AppHandler.full_nms = self._supports_full_nms(AppHandler.predictor.model)
+            logging.info(f"full_nms={AppHandler.full_nms} (auto-detected from cfg)")
 
     # override
     def post(self):
@@ -74,13 +86,18 @@ class AppHandler(BaseApiHandler):
             count3 = len(pc)
             if count3 < count2:
                 logging.info(f"\tremove {count2 - count3} zero points")
+
+            # remove low-intensity points (snow noise): raw intensity 0,1,2
+            # guard: pcds without intensity field load as (N, 3) — skip filtering
+            if pc.shape[1] >= 4:
+                count4 = len(pc)
+                pc = pc[pc[:, 3] > 2]
+                if len(pc) < count4:
+                    logging.info(f"\tremove {count4 - len(pc)} low-intensity points (raw intensity <= 2)")
             t.log_interval(f"VALIDATE points")
 
             # predict
-            # TransFusion is query-based and has no DENSE_HEAD.POST_PROCESSING.NMS_CONFIG;
-            # full_nms=True would raise KeyError in Predictor.__call__
-            # original (CenterPoint): results, _ = self.predictor(points=pc, full_nms=True)
-            results, _ = self.predictor(points=pc, full_nms=False)
+            results, _ = self.predictor(points=pc, full_nms=AppHandler.full_nms)
             t.log_interval(f"MODEL run")
             logging.info(f"{pc.shape} => {len(results['pred_boxes'])} objects")
         except Exception as e:
@@ -117,17 +134,38 @@ class AppHandler(BaseApiHandler):
         }
 
 
+# model presets: cfg + default checkpoint. full_nms is auto-detected from the cfg,
+# so any OpenPCDet model can also be served via explicit --cfg/--ckpt without code changes.
+# OpenPCDet tools/cfgs yamls resolve _BASE_CONFIG_ relative to working_dir (/app/pcdet_open).
+MODELS = {
+    'centerpoint': {
+        'cfg': 'cfgs/nuscenes_models/cbgs_voxel0075_res3d_centerpoint.yaml',  # relative to app dir
+        'ckpt': '/app/cbgs_voxel0075_centerpoint_nds_6648.pth',               # shipped in image
+    },
+    'transfusion': {
+        'cfg': '/app/OpenPCDet/tools/cfgs/nuscenes_models/transfusion_lidar.yaml',
+        'ckpt': '/app/cbgs_transfusion_lidar.pth',                            # mount via compose
+    },
+    'voxelnext': {
+        'cfg': '/app/OpenPCDet/tools/cfgs/nuscenes_models/cbgs_voxel0075_voxelnext.yaml',
+        'ckpt': '/app/cbgs_voxel0075_voxelnext.pth',                          # mount via compose
+    },
+}
+
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument('ckpt', type=str, help='model file')
+    parser.add_argument('--model', type=str, default='centerpoint', choices=sorted(MODELS),
+                        help='model preset (cfg + default checkpoint)')
+    parser.add_argument('--cfg', type=str, default=None, help='override cfg yaml path')
+    parser.add_argument('--ckpt', type=str, default=None, help='override checkpoint path')
     args = parse_args(parser)
 
     app_dir = dirname(abspath(__file__))
-    # original (CenterPoint): cfg_file = join(app_dir, 'cfgs', 'nuscenes_models', 'cbgs_voxel0075_res3d_centerpoint.yaml')
-    # TransFusion-L cfg shipped inside the image; its _BASE_CONFIG_ resolves to
-    # /app/pcdet_open/cfgs/dataset_configs/nuscenes_dataset.yaml relative to working_dir
-    cfg_file = '/app/OpenPCDet/tools/cfgs/nuscenes_models/transfusion_lidar.yaml'
-    ckpt = args.ckpt
+    preset = MODELS[args.model]
+    cfg_file = args.cfg or join(app_dir, preset['cfg'])
+    ckpt = args.ckpt or preset['ckpt']
+    logging.info(f"model={args.model} cfg={cfg_file} ckpt={ckpt}")
 
     start_service([
             (r'/pointCloud/recognition', AppHandler, dict(cfg_file=cfg_file, ckpt=ckpt)),

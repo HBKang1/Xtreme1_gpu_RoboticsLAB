@@ -134,12 +134,15 @@ services:
     
     # [▼ 아래 두 줄을 꼭 추가해주세요!]
     working_dir: /app/pcdet_open
-    # [TransFusion-L] 다시 쓰려면 아래 volumes 2줄과 entrypoint 주석 해제, 원본 entrypoint 주석 처리
-    # volumes:
-    #   - ./cbgs_transfusion_lidar.pth:/app/cbgs_transfusion_lidar.pth:ro
-    #   - ./deploy/point-cloud-detection/app.py:/app/pcdet_open/app.py:ro
-    # entrypoint: ["python", "app.py", "/app/cbgs_transfusion_lidar.pth"]
-    entrypoint: ["python", "app.py", "../cbgs_voxel0075_centerpoint_nds_6648.pth"]  # 원본(CenterPoint)
+    # app.py 마운트: intensity 0~2 저반사(눈 노이즈) 필터 + --model 프리셋(centerpoint/transfusion/voxelnext, full_nms 자동 감지)
+    volumes:
+      - ./deploy/point-cloud-detection/app.py:/app/pcdet_open/app.py:ro
+      - ./deploy/point-cloud-detection/predictor.py:/app/pcdet_open/src/predictor.py:ro
+      - ./cbgs_transfusion_lidar.pth:/app/cbgs_transfusion_lidar.pth:ro
+      - ./cbgs_voxel0075_voxelnext.pth:/app/cbgs_voxel0075_voxelnext.pth:ro
+    # 모델 변경: --model centerpoint (이미지 내장 ckpt, 마운트 불필요) | transfusion | voxelnext
+    # 커스텀(파인튜닝) 모델: --cfg <yaml> --ckpt <pth> 로 직접 지정
+    entrypoint: ["python", "app.py", "--model", "voxelnext"]
 volumes:
   mysql-data:
   redis-data:

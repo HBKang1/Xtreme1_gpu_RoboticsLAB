@@ -56,6 +56,11 @@
               Annotate
             </Button>
           </div>
+          <div class="openBtn" v-if="canResetStatus()">
+            <Button type="primary" block border @click="handleResetStatus">
+              {{ t('business.datasetContent.markNotAnnotated') }}
+            </Button>
+          </div>
           <div class="openBtn">
             <Button
               type="danger"
@@ -119,6 +124,11 @@
                 "
               >
                 Annotate
+              </Button>
+            </div>
+            <div class="openBtn" v-if="canResetStatus()">
+              <Button type="primary" block border @click="handleResetStatus">
+                {{ t('business.datasetContent.markNotAnnotated') }}
               </Button>
             </div>
           </div>
@@ -238,6 +248,7 @@
     'handleSingleAnnotate',
     'handleAnotateFrame',
     'handleChangeType',
+    'handleResetAnnotationStatus',
   ]);
   const translateSplit = (type) => {
     let LowerCase = type.toLowerCase();
@@ -324,6 +335,15 @@
   const handleAnnotate = (data) => {
     console.log('handleAnnotate', data);
     emits('handleSingleAnnotate', data);
+  };
+
+  const canResetStatus = () => {
+    return props.data.annotationStatus && props.data.annotationStatus !== 'NOT_ANNOTATED';
+  };
+
+  const handleResetStatus = (e) => {
+    e.stopPropagation();
+    emits('handleResetAnnotationStatus', props.data.id);
   };
 
   const handleDel = (e) => {

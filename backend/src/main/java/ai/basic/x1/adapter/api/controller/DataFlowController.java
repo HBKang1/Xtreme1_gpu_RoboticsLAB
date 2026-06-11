@@ -1,10 +1,13 @@
 package ai.basic.x1.adapter.api.controller;
 
+import ai.basic.x1.adapter.dto.request.DataResetAnnotationStatusReqDTO;
 import ai.basic.x1.entity.enums.DataStatusEnum;
 import ai.basic.x1.usecase.DataFlowUseCase;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,5 +35,10 @@ public class DataFlowController {
     @PostMapping("/submit/{itemId}")
     public void submit(@PathVariable Long itemId){
         dataFlowUseCase.submit(itemId);
+    }
+
+    @PostMapping("/resetAnnotationStatus")
+    public void resetAnnotationStatus(@RequestBody @Validated DataResetAnnotationStatusReqDTO dto) {
+        dataFlowUseCase.resetAnnotationStatus(dto.getDataIds());
     }
 }

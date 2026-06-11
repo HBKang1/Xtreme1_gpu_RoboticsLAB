@@ -1,17 +1,23 @@
 package ai.basic.x1.usecase;
 
+import ai.basic.x1.adapter.port.dao.DataEditDAO;
 import ai.basic.x1.adapter.port.dao.DataInfoDAO;
 import ai.basic.x1.adapter.port.dao.mybatis.model.DataEdit;
 import ai.basic.x1.adapter.port.dao.mybatis.model.DataInfo;
 import ai.basic.x1.entity.enums.DataAnnotationStatusEnum;
 import ai.basic.x1.entity.enums.DataStatusEnum;
+import ai.basic.x1.usecase.exception.UsecaseCode;
+import ai.basic.x1.usecase.exception.UsecaseException;
+import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.google.common.collect.Sets;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * @author chenchao, chanYoung
@@ -24,6 +30,9 @@ public class DataFlowUseCase {
 
     @Autowired
     private DataEditUseCase dataEditUseCase;
+
+    @Autowired
+    private DataEditDAO dataEditDAO;
 
     @Transactional(rollbackFor = Exception.class)
     public void changeDataStatus(Long dataId, DataStatusEnum status) {
@@ -81,6 +90,33 @@ public class DataFlowUseCase {
                 dataInfoLambdaUpdateWrapper2.set(DataInfo::getAnnotationStatus, DataAnnotationStatusEnum.INVALID);
                 dataInfoDAO.update(dataInfoLambdaUpdateWrapper2);
             }
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void resetAnnotationStatus(List<Long> dataIds) {
+        var lockCount = dataEditDAO.count(Wrappers.lambdaQuery(DataEdit.class)
+                .in(DataEdit::getDataId, dataIds).or().in(DataEdit::getSceneId, dataIds));
+        if (lockCount > 0) {
+            throw new UsecaseException(UsecaseCode.DATASET_DATA_OTHERS_ANNOTATING);
+        }
+        var dataInfos = dataInfoDAO.listByIds(dataIds);
+        if (CollectionUtil.isEmpty(dataInfos)) {
+            throw new UsecaseException(UsecaseCode.DATA_NOT_FOUND);
+        }
+        var updateWrapper = Wrappers.lambdaUpdate(DataInfo.class)
+                .nested(wq -> wq.in(DataInfo::getId, dataIds).or().in(DataInfo::getParentId, dataIds))
+                .set(DataInfo::getAnnotationStatus, DataAnnotationStatusEnum.NOT_ANNOTATED);
+        dataInfoDAO.update(updateWrapper);
+
+        // a reset frame makes its parent scene no longer fully annotated
+        var parentIds = dataInfos.stream().map(DataInfo::getParentId)
+                .filter(parentId -> ObjectUtil.isNotNull(parentId) && parentId > 0)
+                .collect(Collectors.toSet());
+        if (CollectionUtil.isNotEmpty(parentIds)) {
+            dataInfoDAO.update(Wrappers.lambdaUpdate(DataInfo.class)
+                    .in(DataInfo::getId, parentIds)
+                    .set(DataInfo::getAnnotationStatus, DataAnnotationStatusEnum.NOT_ANNOTATED));
         }
     }
 

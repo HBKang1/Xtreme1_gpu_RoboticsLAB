@@ -154,6 +154,7 @@ export interface DatasetItem {
   lockedBy: Nullable<string>;
   datasetName?: string;
   splitType: string;
+  annotationStatus?: string;
 }
 
 export interface DatasetListItem {
@@ -290,6 +291,9 @@ export enum SelectedDataSplitType {
 export interface SelectedDataPa {
   dataIds: string[];
   splitType: SelectedDataSplitType;
+}
+export interface ResetAnnotationStatusPa {
+  dataIds: string[];
 }
 export interface splitFliterParams {
   datasetId: Number;

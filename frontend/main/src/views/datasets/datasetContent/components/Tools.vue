@@ -448,6 +448,7 @@
     'handleMakeFrame',
     'handleMultipleFrame',
     'handleModelRun',
+    'handleResetAnnotationStatus',
     'update:showAnnotation',
     'update:name',
     'update:cardSliderWidthValue',

@@ -22,6 +22,7 @@ import {
   UploadParams,
   ResponseUploadRecord,
   SelectedDataPa,
+  ResetAnnotationStatusPa,
   splitFliterParams,
   TotalDataCountPa,
 } from './model/datasetModel';
@@ -422,6 +423,16 @@ export const getTotalDataCount = (params: TotalDataCountPa) =>
 export const splitDataSelected = (params: SelectedDataPa) =>
   defHttp.post<any>({
     url: `${Api.DATA}/split/dataIds`,
+    params,
+    headers: {
+      // @ts-ignore
+      ignoreCancelToken: true,
+    },
+  });
+
+export const resetAnnotationStatusApi = (params: ResetAnnotationStatusPa) =>
+  defHttp.post<null>({
+    url: `${Api.DATA}/flow/resetAnnotationStatus`,
     params,
     headers: {
       // @ts-ignore

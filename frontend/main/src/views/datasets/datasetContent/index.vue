@@ -597,7 +597,7 @@
     open();
     let params = {
       pageNo: pageNo.value,
-      pageSize: 16,
+      pageSize: 64,
       datasetId: id as string,
       // listType: listTypeEnum.list,
 

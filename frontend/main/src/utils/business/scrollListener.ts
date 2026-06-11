@@ -20,10 +20,10 @@ export const handleScroll = (scrollRef: Ref, callback: Function, canload?) => {
   dom?.addEventListener('scroll', function () {
     clearTimeout(timer);
     timer = setTimeout(() => {
-      if (dom.clientHeight + dom.scrollTop + 50 > dom.scrollHeight) {
+      if (dom.clientHeight + dom.scrollTop + 400 > dom.scrollHeight) {
         callback();
       }
-    }, 500);
+    }, 150);
   });
 };
 

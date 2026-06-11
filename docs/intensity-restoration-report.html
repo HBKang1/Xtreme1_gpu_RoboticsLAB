@@ -56,7 +56,7 @@
     <div class="stat"><div class="num">100,987</div><div class="label">intensity 복원 완료</div></div>
     <div class="stat"><div class="num">0</div><div class="label">실패 / 좌표 불일치</div></div>
     <div class="stat"><div class="num">30/30</div><div class="label">무작위 샘플 검증 통과</div></div>
-    <div class="stat"><div class="num warn">18,184</div><div class="label">MinIO 교체 대상 (미실행)</div></div>
+    <div class="stat"><div class="num">51,015</div><div class="label">MinIO 프레임 교체 완료</div></div>
   </div>
 </header>
 
@@ -149,8 +149,8 @@
 
 <!-- ================= Xtreme1 교체 절차 ================= -->
 <section>
-  <h2>4. Xtreme1 내부 교체 — 해야 할 변경 사항 <span class="badge b-todo">미실행 (설계만)</span></h2>
-  <p class="desc">사용자 지시에 따라 MinIO/DB는 변경하지 않고 읽기 조사만 수행. 아래는 실행 시 필요한 정확한 절차 (모든 수치는 실측).</p>
+  <h2>4. Xtreme1 내부 교체 <span class="badge b-done">실행 완료 (2026-06-11)</span></h2>
+  <p class="desc">설계(4.1~4.4) 후 사용자 승인을 받아 실행. 실행 결과는 4.5 참조.</p>
   <div class="panel">
     <h3 style="font-size:15px;margin-bottom:8px">4.1 현재 저장 구조 (조사 결과)</h3>
     <table>
@@ -175,7 +175,19 @@
       <li><b>파생 binary 재생성</b>: 프레임당 pcd-tools <code>convert_render</code> 호출 (원본 GET presigned + binary/render PUT presigned) → <code>binary-*</code>가 <code>x y z i</code>로 재생성, 응답의 <code>binaryPcdSize</code>·<code>imageSize</code>·<code>pointCloudRange</code>로 파생 file 레코드 갱신. <b>18,184프레임 × 1~2초 ≈ 5~10시간</b> (render 포함 재생성; render만 따로 건너뛸 수는 없음 — API가 쌍으로 생성)</li>
       <li><b>검증</b>: ① binary 객체 헤더에 <code>x y z i</code> 확인 ② <code>SELECT COUNT(*) FROM data_annotation_object</code> 전후 동일 ③ pc-tool로 프레임 1개 열기 ④ 모델 런 1회 (이제 intensity가 실제값으로 모델에 전달됨)</li>
     </ol>
-    <h3 style="font-size:15px;margin:18px 0 8px">4.4 리스크와 참고</h3>
+    <h3 style="font-size:15px;margin:18px 0 8px">4.4 실행 결과 (2026-06-11)</h3>
+    <table>
+      <tr><th>단계</th><th>결과</th></tr>
+      <tr><td>범위 (사용자 결정)</td><td>Zenix_* 데이터셋 전체. 실제 절차는 4.3과 두 가지가 다름: <b>pcd-tools 호출 생략</b>(binary는 복원 pcd의 헤더만 <code>x y z i</code>로 바꿔 직접 업로드, render는 xyz 기반이라 유지), MinIO 기존 바이트 대조 가드는 사용자 지시로 생략(이름/순서 + 포인트수 검증만)</td></tr>
+      <tr><td>Night 24개 (이름 매칭)</td><td><b class="ok">40,906프레임 × 2객체 교체, 스킵·오류 0</b> (85분, 7.9건/s). 매칭 = 파일명 + 포인트수(velodyne/hesai 모호성 해소, <code>_old</code> 씬 사본은 비-old 우선)</td></tr>
+      <tr><td>Day 6개 (순서 매핑)</td><td><b class="ok">10,109프레임 × 2객체 교체, 스킵·오류 0</b> (9.5분). a2z.py의 <code>sorted(pcd)[i] ↔ {i:06d}.pcd</code> 규칙 재현; 데이터셋↔씬은 프레임 수 지문으로 유일 매칭, 프레임마다 크기↔포인트수 검증</td></tr>
+      <tr><td>DB 갱신</td><td><b class="ok">file.size 102,030행</b> 트랜잭션 UPDATE, 무작위 대조 전건 일치</td></tr>
+      <tr><td>제외</td><td>Zenix_Day_0 2,770프레임 (디스크 씬 2,626과 프레임 수 불일치 — 구버전 추출 추정, GT 1프레임뿐), 한글명 8개 461프레임(캠퍼스 실내 데이터, zenix 디스크에 원본 없음), 테스트 데이터셋(d, test_hb 등— 사용자 범위 제외)</td></tr>
+      <tr><td>검증</td><td>교체 객체 헤더 원본 <code>x y z intensity</code>·binary <code>x y z i</code> 확인, DB size↔객체 크기 대조 일치, <b>GT 63,530객체/6,527프레임 무손실</b></td></tr>
+      <tr><td>백업/롤백</td><td><code>.omc/minio-replace/file_backup_20260611.sql</code>(DB 전체), <code>done.ids</code>·<code>sizes.tsv</code>(교체 대장). 롤백 = 디스크 pcd에서 intensity 컬럼 제거본을 같은 키로 재업로드 + 백업 SQL 복원</td></tr>
+      <tr><td>디스크</td><td>로컬 여유 92GB → 약 42GB (+50GB 사용, 예상 범위)</td></tr>
+    </table>
+    <h3 style="font-size:15px;margin:18px 0 8px">4.5 리스크와 참고</h3>
     <ul>
       <li>2~4단계 사이 중단되면 일부 프레임은 원본(intensity有)·binary(intensity無) 불일치 상태가 되지만, 뷰어·모델 모두 동작엔 문제 없음 (binary 우선 로드) — 재실행으로 수렴</li>
       <li>업로드 안 된 나머지 디스크 데이터는 이미 복원됐으므로, <b>향후 새 데이터셋 업로드는 자동으로 intensity 포함</b></li>

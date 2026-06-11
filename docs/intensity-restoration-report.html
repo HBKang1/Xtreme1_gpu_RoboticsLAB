@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zenix LiDAR Intensity 소실 — 원인 분석 및 복원 보고서</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --blue:#58a6ff; --green:#3fb950;
+    --orange:#f0883e; --purple:#bc8cff; --red:#f85149; --yellow:#d29922;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Pretendard',-apple-system,'Malgun Gothic',sans-serif;line-height:1.65;padding:32px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:27px;letter-spacing:-.5px}
+  h1 .accent{color:var(--red)}
+  .sub{color:var(--muted);margin-top:6px;font-size:14.5px}
+  section{margin-top:44px}
+  h2{font-size:19px;margin-bottom:6px;padding-left:12px;border-left:4px solid var(--blue)}
+  .desc{color:var(--muted);font-size:13.5px;margin-bottom:16px;padding-left:16px}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:22px;overflow-x:auto}
+  code,pre{font-family:ui-monospace,'Cascadia Code',monospace;font-size:12.5px}
+  code{background:var(--panel2);border:1px solid var(--border);padding:1px 6px;border-radius:5px}
+  pre{background:#0a0d12;border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow-x:auto;line-height:1.55;margin:10px 0}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin:8px 0}
+  th,td{border:1px solid var(--border);padding:8px 12px;text-align:left}
+  th{background:var(--panel2);color:var(--text)}
+  td{color:var(--muted)} td b, td strong{color:var(--text)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:26px 0 6px}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+  .stat .num{font-size:25px;font-weight:700;color:var(--green)}
+  .stat .num.warn{color:var(--orange)}
+  .stat .label{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .ok{color:var(--green);font-weight:700}
+  .bad{color:var(--red);font-weight:700}
+  .warn{color:var(--orange);font-weight:600}
+  .badge{font-size:11px;padding:2px 10px;border-radius:999px;border:1px solid;font-weight:700;vertical-align:2px}
+  .b-done{color:var(--green);border-color:var(--green)}
+  .b-todo{color:var(--orange);border-color:var(--orange)}
+  ol,ul{padding-left:22px;color:var(--muted);font-size:14px}
+  li{margin:5px 0}
+  li b,li strong,li code{color:var(--text)}
+  svg text{font-family:inherit}
+  .footnote{margin-top:50px;text-align:center;color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Zenix LiDAR <span class="accent">Intensity 소실</span> — 원인 분석 및 복원 보고서</h1>
+  <div class="sub">2026-06-11 · 작업 범위: 원인 규명 → 디스크 데이터셋 복원(실행 완료) → Xtreme1 MinIO/DB 교체(절차 설계, 미실행)</div>
+  <div class="stats">
+    <div class="stat"><div class="num">106,402</div><div class="label">검사한 pcd 파일</div></div>
+    <div class="stat"><div class="num">100,987</div><div class="label">intensity 복원 완료</div></div>
+    <div class="stat"><div class="num">0</div><div class="label">실패 / 좌표 불일치</div></div>
+    <div class="stat"><div class="num">30/30</div><div class="label">무작위 샘플 검증 통과</div></div>
+    <div class="stat"><div class="num warn">18,184</div><div class="label">MinIO 교체 대상 (미실행)</div></div>
+  </div>
+</header>
+
+<!-- ================= 원인 ================= -->
+<section>
+  <h2>1. 원인 — 변환 파이프라인 어디서 intensity가 사라졌나</h2>
+  <p class="desc">rosbag과 중간 산출물(raw .bin)에는 intensity가 살아 있고, 최종 pcd에서만 사라짐 → <b style="color:var(--red)">raw .bin → .pcd 변환 단계가 소실 지점</b>.</p>
+  <div class="panel">
+    <svg viewBox="0 0 1020 230" width="100%" style="min-width:820px" font-size="13">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8b949e"/></marker></defs>
+      <rect x="10" y="60" width="180" height="84" rx="8" fill="rgba(63,185,80,.08)" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="100" y="85" text-anchor="middle" fill="#3fb950" font-weight="700">rosbag (bag_0124/0224)</text>
+      <text x="100" y="106" text-anchor="middle" fill="#e6edf3" font-size="11.5">/hesai64/hesai/pandar (64ch)</text>
+      <text x="100" y="122" text-anchor="middle" fill="#e6edf3" font-size="11.5">/velodyne_points (16ch)</text>
+      <text x="100" y="138" text-anchor="middle" fill="#3fb950" font-size="11.5" font-weight="700">intensity 있음 ✓</text>
+      <line x1="190" y1="102" x2="245" y2="102" stroke="#8b949e" stroke-width="1.5" marker-end="url(#a)"/>
+      <rect x="247" y="60" width="200" height="84" rx="8" fill="rgba(63,185,80,.08)" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="347" y="85" text-anchor="middle" fill="#3fb950" font-weight="700">raw .bin (raw_0124/0224)</text>
+      <text x="347" y="106" text-anchor="middle" fill="#e6edf3" font-size="11.5">KITTI식 float32 x,y,z,intensity</text>
+      <text x="347" y="122" text-anchor="middle" fill="#e6edf3" font-size="11.5">씬/센서별 data/NNNNNNNNNN.bin</text>
+      <text x="347" y="138" text-anchor="middle" fill="#3fb950" font-size="11.5" font-weight="700">intensity 있음 ✓ (0~255 실측)</text>
+      <line x1="447" y1="102" x2="502" y2="102" stroke="#f85149" stroke-width="2" marker-end="url(#a)"/>
+      <rect x="504" y="52" width="200" height="100" rx="8" fill="rgba(248,81,73,.10)" stroke="#f85149" stroke-width="2"/>
+      <text x="604" y="77" text-anchor="middle" fill="#f85149" font-weight="700">bin → pcd 변환 스크립트</text>
+      <text x="604" y="98" text-anchor="middle" fill="#e6edf3" font-size="11.5">xyz만 추출해 pcd 작성</text>
+      <text x="604" y="114" text-anchor="middle" fill="#e6edf3" font-size="11.5">(스크립트 원본은 미발견)</text>
+      <text x="604" y="136" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">★ 소실 지점</text>
+      <line x1="704" y1="102" x2="759" y2="102" stroke="#8b949e" stroke-width="1.5" marker-end="url(#a)"/>
+      <rect x="761" y="60" width="240" height="84" rx="8" fill="rgba(240,136,62,.08)" stroke="#f0883e" stroke-width="1.5"/>
+      <text x="881" y="85" text-anchor="middle" fill="#f0883e" font-weight="700">dataset pcd (106,402개)</text>
+      <text x="881" y="106" text-anchor="middle" fill="#e6edf3" font-size="11.5">FIELDS x y z (binary)</text>
+      <text x="881" y="122" text-anchor="middle" fill="#e6edf3" font-size="11.5">point_cloud_16 / lidar_point_cloud_0·64</text>
+      <text x="881" y="138" text-anchor="middle" fill="#f85149" font-size="11.5" font-weight="700">intensity 없음 ✗</text>
+      <path d="M 881 144 L 881 185 L 620 185" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#a)"/>
+      <rect x="380" y="166" width="240" height="40" rx="8" fill="#1c2330" stroke="#8b949e"/>
+      <text x="500" y="191" text-anchor="middle" fill="#8b949e" font-size="12">tar 재패키징 (a2z.py 등, pcd 그대로 복사) → Xtreme1 업로드</text>
+    </svg>
+  </div>
+  <div class="panel" style="margin-top:14px">
+    <table>
+      <tr><th>단계</th><th>증거</th><th>intensity</th></tr>
+      <tr><td>rosbag</td><td>메시지 정의에 <code>intensity</code> 필드 존재 (Hesai/Velodyne PointCloud2)</td><td class="ok">있음</td></tr>
+      <tr><td>raw .bin</td><td>355,504B ÷ 16 = 22,219pt 정수 분할, 4번째 열 0~255 실측</td><td class="ok">있음</td></tr>
+      <tr><td>dataset .pcd</td><td>헤더 <code>FIELDS x y z / SIZE 4 4 4 / TYPE F F F</code></td><td class="bad">없음</td></tr>
+      <tr><td>재패키징 스크립트 11개</td><td><code>a2z.py</code>, <code>data_ver2.py</code>, <code>last.py</code> 등 — 전부 <code>shutil.copy</code>로 pcd 그대로 이동 (무관)</td><td>-</td></tr>
+    </table>
+    <p style="color:var(--muted);font-size:13px;margin-top:8px">
+      실제 bin→pcd 변환 스크립트는 탐색 범위(<code>~/24_04</code>, <code>~/project_ws</code>, 데이터셋 폴더 등)에서 발견되지 않았다 (삭제 또는 다른 머신에서 실행된 것으로 추정).
+      같은 시기에 작성된 <code>/home/a/24_04/auto_calib_saver.py</code>가 <code>pc2.read_points(..., field_names=("x","y","z"))</code>로 xyz만 추출하는 동일한 실수 패턴을 보여준다.
+      open3d <code>write_point_cloud</code> 사용 가능성도 높다 — open3d PointCloud 자료구조에는 intensity 속성이 없어 조용히 버려진다.
+    </p>
+  </div>
+</section>
+
+<!-- ================= 복원 방법 ================= -->
+<section>
+  <h2>2. 복원 방법 — 좌표 보존 intensity 이식 <span class="badge b-done">실행 완료</span></h2>
+  <p class="desc">GT 어노테이션 63,463개가 기존 pcd 좌표 기준이므로, 재변환 대신 <b>기존 pcd의 xyz 바이트를 그대로 두고 intensity 컬럼만 이식</b>하는 방식을 사용.</p>
+  <div class="panel">
+    <ol>
+      <li><b>매핑 규칙</b> (사전 검증): 파일명 <code>z{NN}-{타임스탬프}_{프레임}.pcd</code> → raw 씬 <code>{NN}_{타임스탬프}</code>의 <code>{프레임}.bin</code>. 센서는 디렉토리명으로 매핑 (<code>point_cloud_16</code>·<code>lidar_point_cloud_16</code>→velodyne, <code>lidar_point_cloud_0</code>·<code>_64</code>→hesai64)</li>
+      <li><b>사전 게이트</b>: 샘플 프레임에서 pcd와 bin의 좌표가 KDTree 거리 0으로 <b>100.000% 일치</b>, 포인트 수·순서까지 동일함을 확인 (velodyne 22,219pt, hesai 220,166pt)</li>
+      <li><b>프레임별 안전장치</b>: 포인트 수 또는 xyz 배열이 bin과 정확히 일치하지 않으면 <b>건드리지 않고 스킵·로그</b> (실제 발생 0건)</li>
+      <li><b>원자적 쓰기</b>: <code>.tmp</code> 작성 후 <code>rename</code> — 중단돼도 파일 손상 없음. 멱등 설계 (이미 복원된 파일은 자동 스킵)</li>
+      <li><b>가역성</b>: 새 pcd에서 intensity 컬럼만 제거하면 원본과 바이트 단위로 동일하게 되돌릴 수 있음 (헤더 템플릿 동일 확인)</li>
+    </ol>
+    <p style="color:var(--muted);font-size:13px">도구: <code>training/restore_intensity.py</code> (드라이런 → 적용, 워커 수·데이터셋·샘플 수 옵션)</p>
+  </div>
+</section>
+
+<!-- ================= 실행 결과 ================= -->
+<section>
+  <h2>3. 실행 결과</h2>
+  <div class="panel">
+    <table>
+      <tr><th>항목</th><th>값</th></tr>
+      <tr><td>대상</td><td><code>dataset_0124</code>(81,059) + <code>dataset_0224</code>(25,343) = <b>106,402개 pcd</b> (~88.4 GiB → ~118 GiB)</td></tr>
+      <tr><td>결과</td><td><b class="ok">복원 100,987 + 기존 복원분 5,415 = 106,402 (100%)</b>, 실패·좌표 불일치·스킵 <b class="ok">0건</b></td></tr>
+      <tr><td>소요</td><td>7시간 26분 (워커 4개, NAS CIFS 실효 한계 ~4파일/초)</td></tr>
+      <tr><td>검증</td><td>무작위 30프레임: 헤더 <code>FIELDS x y z intensity</code> ✓, <b>xyz가 raw bin과 바이트 동일</b> ✓, intensity 컬럼 동일 ✓, 파인튜닝 변환기(<code>convert_xtreme1_to_openpcdet.py</code>) 재파싱 ✓</td></tr>
+      <tr><td>intensity 분포</td><td>0~255 (Hesai 평균 ~16, Velodyne 평균 ~28 수준 — 설상 환경 특성상 저반사 우세)</td></tr>
+    </table>
+    <p style="color:var(--muted);font-size:13px;margin-top:8px">
+      <b>인프라 발견</b>: <code>~/dataset_custom</code>은 로컬 디스크가 아니라 NAS의 CIFS 마운트(<code>//192.168.0.3</code>, 79TB)였다.
+      12워커 병렬은 SMB oplock 경합으로 사실상 정지(0.4MB/s)했고, 4워커가 최적이었다 (읽기 27MiB/s·쓰기 107MiB/s 측정).
+      향후 이 폴더에 대량 IO 작업 시 워커 수를 낮게 유지할 것.
+    </p>
+  </div>
+</section>
+
+<!-- ================= Xtreme1 교체 절차 ================= -->
+<section>
+  <h2>4. Xtreme1 내부 교체 — 해야 할 변경 사항 <span class="badge b-todo">미실행 (설계만)</span></h2>
+  <p class="desc">사용자 지시에 따라 MinIO/DB는 변경하지 않고 읽기 조사만 수행. 아래는 실행 시 필요한 정확한 절차 (모든 수치는 실측).</p>
+  <div class="panel">
+    <h3 style="font-size:15px;margin-bottom:8px">4.1 현재 저장 구조 (조사 결과)</h3>
+    <table>
+      <tr><th>항목</th><th>값</th></tr>
+      <tr><td>업로드된 원본 pcd</td><td>57,512개 / 83.8 GiB — MinIO 경로 <code>{userId}/{datasetId}/{uuid}/lidar_point_cloud_0/{디스크와 동일한 파일명}</code></td></tr>
+      <tr><td>파생 binary</td><td>57,512개 / 83.5 GiB (<code>binary-*.pcd</code>) — 현재 <code>FIELDS x y z</code>. <b>pc-tool 뷰어와 모델 런이 우선 사용하는 파일</b></td></tr>
+      <tr><td>파생 render</td><td>57,512개 / 5.5 GiB (<code>render-*.png</code>) — xyz 기반이므로 <b>교체 불필요(그대로 유효)</b></td></tr>
+      <tr><td>GT</td><td>63,463객체 / 6,496프레임 — <code>file</code> 테이블과 무관하므로 <b>객체 교체로 영향 없음</b></td></tr>
+      <tr><td>파생 재생성 API</td><td><code>POST http://pcd-tools:5000/pointcloud/convert_render</code> (presigned GET/PUT URL + <code>type:1</code>) — intensity가 있으면 binary를 <code>FIELDS x y z i</code>로 생성 (trial 데이터셋에서 확인)</td></tr>
+    </table>
+    <h3 style="font-size:15px;margin:18px 0 8px">4.2 권장 범위: 어노테이션된 16개 데이터셋만</h3>
+    <ul>
+      <li>전체 57,512개 교체는 <b class="warn">로컬 디스크 용량상 불가</b> (MinIO 볼륨이 로컬 NVMe에 있고 여유 82GB, 필요 증가량 ~66GB 초과)</li>
+      <li>어노테이션된 16개 데이터셋(ds id 7,8,9,10,11,14,26,28,33,37,38,39,40,41,42,45) = <b>원본 18,184개 / 25.6 GiB</b> → 증가량 원본 +8.5GiB, binary +~17GiB로 수용 가능</li>
+      <li>주요 대상: Zenix_Night_1(2,612), Zenix_Day_1(1,143), Zenix_Night_14(898), Zenix_Day_2(789) 등</li>
+    </ul>
+    <h3 style="font-size:15px;margin:18px 0 8px">4.3 실행 절차 (실행 승인 시)</h3>
+    <ol>
+      <li><b>백업</b>: <code>docker exec ... mysqldump xtreme1 file &gt; file_backup.sql</code> + 교체 대상 객체 목록/크기 저장</li>
+      <li><b>원본 교체</b>: 대상 데이터셋의 file 레코드(path, name)를 SELECT → 디스크의 복원된 pcd를 같은 키로 <code>mc cp</code> 덮어쓰기 (자격증명: compose의 <code>admin/1tQB970y</code>, 버킷 <code>xtreme1</code>, 네트워크 <code>xtreme1_gpu_roboticslab_default</code>). 파일명+크기(기존 size = 디스크 원본 크기였음) 일치 검증 후 교체</li>
+      <li><b>DB 갱신</b>: 원본 레코드 <code>UPDATE file SET size = {새 크기}</code> (새 크기 = 기존 size × 4/3 + 헤더 차이)</li>
+      <li><b>파생 binary 재생성</b>: 프레임당 pcd-tools <code>convert_render</code> 호출 (원본 GET presigned + binary/render PUT presigned) → <code>binary-*</code>가 <code>x y z i</code>로 재생성, 응답의 <code>binaryPcdSize</code>·<code>imageSize</code>·<code>pointCloudRange</code>로 파생 file 레코드 갱신. <b>18,184프레임 × 1~2초 ≈ 5~10시간</b> (render 포함 재생성; render만 따로 건너뛸 수는 없음 — API가 쌍으로 생성)</li>
+      <li><b>검증</b>: ① binary 객체 헤더에 <code>x y z i</code> 확인 ② <code>SELECT COUNT(*) FROM data_annotation_object</code> 전후 동일 ③ pc-tool로 프레임 1개 열기 ④ 모델 런 1회 (이제 intensity가 실제값으로 모델에 전달됨)</li>
+    </ol>
+    <h3 style="font-size:15px;margin:18px 0 8px">4.4 리스크와 참고</h3>
+    <ul>
+      <li>2~4단계 사이 중단되면 일부 프레임은 원본(intensity有)·binary(intensity無) 불일치 상태가 되지만, 뷰어·모델 모두 동작엔 문제 없음 (binary 우선 로드) — 재실행으로 수렴</li>
+      <li>업로드 안 된 나머지 디스크 데이터는 이미 복원됐으므로, <b>향후 새 데이터셋 업로드는 자동으로 intensity 포함</b></li>
+      <li>파인튜닝 파이프라인(<code>training/</code>)은 디스크 pcd를 읽으므로 <b>이번 복원만으로 즉시 intensity 학습 가능</b> — MinIO 교체는 Xtreme1 안에서의 모델 런/시각화용</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= 되돌리기 ================= -->
+<section>
+  <h2>5. 되돌리기</h2>
+  <div class="panel">
+    <ul>
+      <li><b>디스크 복원분</b>: 새 pcd에서 4번째(intensity) 컬럼 제거 + 기존 헤더 템플릿으로 재작성하면 원본과 바이트 동일 (raw .bin이 원천 데이터로 NAS에 보존돼 있어 언제든 재생 가능)</li>
+      <li><b>MinIO/DB</b>: 아직 아무것도 변경하지 않음 — 되돌릴 것 없음. 실행하게 되면 1단계 백업(<code>file_backup.sql</code> + 객체 목록)이 복원 수단</li>
+    </ul>
+  </div>
+</section>
+
+<div class="footnote">
+  생성: 2026-06-11 · 도구: <code>training/restore_intensity.py</code> · 로그: <code>/tmp/restore_run2.log</code>, <code>/tmp/restore_intensity.ndjson</code> · 관련 문서: <code>.omc/wiki/intensity-loss-investigation.md</code>
+</div>
+
+</div>
+</body>
+</html>

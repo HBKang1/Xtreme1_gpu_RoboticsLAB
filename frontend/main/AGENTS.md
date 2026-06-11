@@ -65,3 +65,11 @@ The main Xtreme1 web platform: a Vue 3 + TypeScript + Vite 2 SPA forked from [vu
 - Build/dev: vite ^2.6.13, typescript ^4.4.4, vue-tsc, esno, less, windicss (vite-plugin-windicss), vite-plugin-mock, vite-plugin-svg-icons, vite-plugin-theme, jest ^27 + ts-jest, eslint + prettier + stylelint.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+## Manual Notes (2026-06-11)
+
+### Dataset content list (frame grid) & infinite scroll
+- Page: `src/views/datasets/datasetContent/index.vue` — `fetchList()` posts to `/data/findByPage` via `datasetApi` (`src/api/business/dataset.ts`) with `pageSize: 64` (raised from 16 on 2026-06-11 for scroll speed), then a second `datasetObjectApi` call per batch for annotation objects, plus `fetchStatusNum()`.
+- Scroll loading: shared util `src/utils/business/scrollListener.ts handleScroll()` — triggers `loadMore()` 150 ms after scroll when within 400 px of the bottom (was 500 ms / 50 px). Also used by dataset list, ontology, and model list pages, so changes there affect all infinite-scroll pages.
+- Thumbnails are pre-generated at upload (MinIO; point clouds get a backend-rendered image) and lazy-loaded via `v-lazyload` — they don't block list loading.
+- Known remaining bottleneck: backend `DataInfoUseCase.findByPage` runs per-item queries (locked-user info, scene first-data) — N+1 pattern.

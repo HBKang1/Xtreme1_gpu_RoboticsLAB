@@ -67,3 +67,19 @@
 - `three` ^0.136.0 (3D rendering), `vue` ^3.2.25, `ant-design-vue` 2.2.8, `vue-router` ^4, `vue-i18n` ^9, `hotkeys-js`, `@tweenjs/tween.js`, `interactjs`, `axios` ^0.26, `lodash`, `colord`, `vue3-colorpicker`. Build: `vite` ^2.8, `typescript` ^4.5, `@vitejs/plugin-vue`.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+## Manual Notes (2026-06-11)
+
+### Object / track system (why every new cuboid is a "new object")
+- Every drawn cuboid gets a fresh `trackId` (16-char nanoid) + `trackName` (counter, shown as "Cuboid N"): `setIdInfo()` in `src/packages/pc-editor/utils/create.ts`; counter is `Editor.getId()`.
+- Same physical object across frames = same `trackId`. Two built-in ways to continue a track:
+  1. Keep the object selected — selection sets `Editor.currentTrack` (`updateTrack()`), which `LoadManager.loadFrame()` preserves across frame switches; `createObjectWith3` (`ActionManager/action/create.ts`) then reuses that trackId for the new box, unless the track already has a box in the current frame (one box per track per frame).
+  2. Copy forward/backward (`DataManager.copyForward/copyBackWard/copyAllForward` → `utils/data.ts copyData()`) — preserves trackId; if the target frame already has the track, it updates transform instead of duplicating.
+- Track merge/split exist in `pc-editor/common/TrackManager.ts` (`mergeTrackObject`, `splitTrackObject`) but their UI hooks are commented out in `components/TimeLine/useTimeLine.ts` — no UI way to merge two tracks after the fact.
+- Cross-frame tracking only works for series data: `state.isSeriesFrame` ⇔ itemType in `['FRAME_SERIES','SCENE']` (`src/api/common.ts`).
+- UI strings "Cloud Point Object" / "Cuboid N": `components/EditClass/lang/en.ts`, `components/EditClass/index.vue`.
+
+### Box creation modes & intensity
+- `config.boxMethod === 'AI'` (in `createObjectWith3`): drag-rect → LOCAL web-worker geometric fitting (`pc-editor/common/TaskManager/create/worker.ts` → `utils/AIBox/getAIMiniBox`). Only xyz positions are transferred — intensity never reaches it; no model server involved. Falls back to 3-point transform if fitting fails.
+- Manual mode (`points-3`): three clicked ground points → `getTransformFrom3Point` + `heightRange`.
+- Full-frame model inference is a separate path: Tool panel → `src/api/model.ts runModel()` → `/api/data/modelAnnotate` → backend → model serving (`deploy/point-cloud-detection/app.py`), which downloads the pcd from MinIO and drops raw intensity ≤ 2 (snow noise) before inference. That intensity filter applies ONLY to this path, never to AI-box fitting.

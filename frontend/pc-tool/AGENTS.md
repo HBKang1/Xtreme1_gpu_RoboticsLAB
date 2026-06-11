@@ -70,6 +70,11 @@
 
 ## Manual Notes (2026-06-11)
 
+### Model tracking (added 2026-06-11, backend-bypass prototype)
+- Timeline toolbar has track-backward / track-forward / track-all buttons (+ frame count 1..10, gear popover for keep-height/keep-heading toggles, hotkeys Alt+T / Alt+Shift+T). Series-frame data only.
+- Flow: `DataManager.trackForward/trackBackward/trackAllForward` → `modelTrack` (seeds + prevCenter3D) → `runModelTrack` → `BusinessManager.runModelTrack` (resolves per-frame pcd urls via `getDataFile`) → POST `/modelApi/pointCloud/track` (gateway nginx → detection serving `app.py TrackHandler`, no Java backend). Settings live in `editor.state.config.trackFrameN/trackKeepZ/trackKeepRotation`.
+- Server: per-frame re-detection + BEV greedy match (gate 2.0→4.0m with misses), point-cloud snap on miss, deactivate after 5 consecutive misses, fallback confidence 0.1. Tuning constants at top of `deploy/point-cloud-detection/app.py`.
+
 ### Object / track system (why every new cuboid is a "new object")
 - Every drawn cuboid gets a fresh `trackId` (16-char nanoid) + `trackName` (counter, shown as "Cuboid N"): `setIdInfo()` in `src/packages/pc-editor/utils/create.ts`; counter is `Editor.getId()`.
 - Same physical object across frames = same `trackId`. Two built-in ways to continue a track:

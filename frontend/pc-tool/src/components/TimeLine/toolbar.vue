@@ -174,6 +174,50 @@
                         </template>
                     </a-button>
                 </a-tooltip>
+
+                <!-- model tracking (prototype): propagate boxes N frames forward -->
+                <template v-if="canEdit() && editor.state.isSeriesFrame">
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('trackRight1') }}</template>
+                        <a-button
+                            :disabled="disable"
+                            @click="() => onAction('TrackForward')"
+                            style="width: 40px; margin-left: 8px"
+                        >
+                            <template #icon>
+                                <div>
+                                    <AimOutlined style="margin-right: -4px; font-size: 14px" />
+                                    <StepForwardOutlined />
+                                </div>
+                            </template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('trackAllRight1') }}</template>
+                        <a-button
+                            :disabled="disable"
+                            @click="() => onAction('TrackAllForward')"
+                            style="width: 50px"
+                        >
+                            <template #icon>
+                                <div>
+                                    <AimOutlined style="margin-right: -4px; font-size: 14px" />
+                                    <AimOutlined style="margin-right: -4px; font-size: 14px" />
+                                    <StepForwardOutlined />
+                                </div>
+                            </template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-input-number
+                        style="width: 44px"
+                        :disabled="disable"
+                        v-model:value="iState.trackFrameN"
+                        :precision="0"
+                        :min="1"
+                        :max="10"
+                        size="small"
+                    />
+                </template>
             </div>
         </div>
         <div class="bar-right" v-show="!isCheck()" v-if="canEdit()">
@@ -204,7 +248,12 @@
     import useUI from '../../hook/useUI';
     import { ITrackAction, IBottomState } from './useTimeLine';
 
-    import { StepForwardOutlined, StepBackwardOutlined, CopyOutlined } from '@ant-design/icons-vue';
+    import {
+        StepForwardOutlined,
+        StepBackwardOutlined,
+        CopyOutlined,
+        AimOutlined,
+    } from '@ant-design/icons-vue';
     import { useInjectEditor } from '../../state';
     const props = defineProps<{
         state: IBottomState;
@@ -215,6 +264,7 @@
     const iState = reactive({
         // autoLoad: false,
         frameIndex: editor.state.frameIndex + 1,
+        trackFrameN: 1,
     });
     const autoLoadSwitch = ref<HTMLElement>();
     const emit = defineEmits(['onTrackAction', 'updateTrackLine']);
@@ -242,6 +292,8 @@
         | 'CopyForward'
         | 'CopyBackward'
         | 'CopyAllForward'
+        | 'TrackForward'
+        | 'TrackAllForward'
         | 'AutoLoad'
         | 'Replay'
         | 'PreFrame'
@@ -281,6 +333,24 @@
 
             case 'CopyAllForward':
                 editor.dataManager.copyAllForward();
+                break;
+
+            case 'TrackForward':
+                editor.dataManager.track({
+                    method: 'model',
+                    object: 'select',
+                    direction: 'FORWARD',
+                    frameN: iState.trackFrameN,
+                });
+                break;
+
+            case 'TrackAllForward':
+                editor.dataManager.track({
+                    method: 'model',
+                    object: 'all',
+                    direction: 'FORWARD',
+                    frameN: iState.trackFrameN,
+                });
                 break;
             case 'Replay':
                 rePlay();

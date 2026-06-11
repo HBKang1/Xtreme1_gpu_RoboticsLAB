@@ -41,3 +41,5 @@ frontend/**/vite.config.local.*
 
 ### Model checkpoints ###
 *.pth
+
+__pycache__/

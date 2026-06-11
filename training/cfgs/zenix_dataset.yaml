@@ -1,0 +1,91 @@
+# Zenix (16-beam, snow) custom dataset for OpenPCDet fine-tuning.
+# Place at: OpenPCDet/tools/cfgs/dataset_configs/zenix_dataset.yaml
+# Data produced by training/convert_xtreme1_to_openpcdet.py goes to: OpenPCDet/data/zenix
+#
+# NOTE: geometry (range / voxel size) intentionally matches the nuScenes
+# cbgs_voxel0075 pretrained model so backbone weights transfer cleanly.
+
+DATASET: 'CustomDataset'
+DATA_PATH: '../data/zenix'
+
+POINT_CLOUD_RANGE: [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
+
+# Used only by the KITTI-style eval during training; map each of YOUR classes
+# to the closest of Car / Pedestrian / Cyclist. Replace keys with the class
+# names printed by convert_xtreme1_to_openpcdet.py.
+MAP_CLASS_TO_KITTI: {
+    'Car': 'Car',
+    'Truck': 'Car',
+    'Bus': 'Car',
+    'Pedestrian': 'Pedestrian',
+    'Cyclist': 'Cyclist',
+}
+
+DATA_SPLIT: {
+    'train': train,
+    'test': val
+}
+
+INFO_PATH: {
+    'train': [custom_infos_train.pkl],
+    'test': [custom_infos_val.pkl],
+}
+
+POINT_FEATURE_ENCODING: {
+    encoding_type: absolute_coordinates_encoding,
+    # 2026-06-11: real intensity restored on disk (training/restore_intensity.py),
+    # so training uses actual values normalized to [0,1] by the converter.
+    # CAUTION train/serve consistency: Xtreme1's MinIO copies (what model runs load)
+    # still lack intensity until the MinIO replacement procedure is executed —
+    # see docs/intensity-restoration-report.html section 4.
+    used_feature_list: ['x', 'y', 'z', 'intensity'],
+    src_feature_list: ['x', 'y', 'z', 'intensity'],
+}
+
+DATA_AUGMENTOR:
+    DISABLE_AUG_LIST: ['placeholder']
+    AUG_CONFIG_LIST:
+        - NAME: gt_sampling
+          USE_ROAD_PLANE: False
+          DB_INFO_PATH:
+              - custom_dbinfos_train.pkl
+          PREPARE: {
+             # replace with YOUR classes (converter output)
+             filter_by_min_points: ['Car:5', 'Truck:5', 'Bus:5', 'Pedestrian:5', 'Cyclist:5'],
+          }
+          # replace with YOUR classes; counts = how many sampled objects pasted per scene
+          SAMPLE_GROUPS: ['Car:2', 'Truck:3', 'Bus:4', 'Pedestrian:2', 'Cyclist:6']
+          NUM_POINT_FEATURES: 4
+          DATABASE_WITH_FAKELIDAR: False
+          REMOVE_EXTRA_WIDTH: [0.0, 0.0, 0.0]
+          LIMIT_WHOLE_SCENE: True
+
+        - NAME: random_world_flip
+          ALONG_AXIS_LIST: ['x', 'y']
+
+        - NAME: random_world_rotation
+          WORLD_ROT_ANGLE: [-0.78539816, 0.78539816]
+
+        - NAME: random_world_scaling
+          WORLD_SCALE_RANGE: [0.9, 1.1]
+
+        - NAME: random_world_translation
+          NOISE_TRANSLATE_STD: [0.5, 0.5, 0.5]
+
+DATA_PROCESSOR:
+    - NAME: mask_points_and_boxes_outside_range
+      REMOVE_OUTSIDE_BOXES: True
+
+    - NAME: shuffle_points
+      SHUFFLE_ENABLED: {
+        'train': True,
+        'test': True
+      }
+
+    - NAME: transform_points_to_voxels
+      VOXEL_SIZE: [0.075, 0.075, 0.2]
+      MAX_POINTS_PER_VOXEL: 10
+      MAX_NUMBER_OF_VOXELS: {
+        'train': 120000,
+        'test': 160000
+      }

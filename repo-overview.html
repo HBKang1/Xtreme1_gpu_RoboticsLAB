@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xtreme1 GPU RoboticsLAB — 저장소 시각화</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2330;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --blue: #58a6ff;
+    --green: #3fb950;
+    --orange: #f0883e;
+    --purple: #bc8cff;
+    --red: #f85149;
+    --yellow: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Pretendard', -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
+    line-height: 1.6;
+    padding: 32px 24px 80px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  header { margin-bottom: 36px; }
+  h1 { font-size: 30px; letter-spacing: -0.5px; }
+  h1 .accent { color: var(--blue); }
+  .sub { color: var(--muted); margin-top: 6px; font-size: 15px; }
+  .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+  }
+  .badge.fork { border-color: var(--orange); color: var(--orange); }
+  .badge.gpu { border-color: var(--green); color: var(--green); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 28px 0 8px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .stat .num { font-size: 26px; font-weight: 700; color: var(--blue); }
+  .stat .label { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+  section { margin-top: 48px; }
+  h2 {
+    font-size: 20px; margin-bottom: 6px; padding-left: 12px;
+    border-left: 4px solid var(--blue);
+  }
+  .desc { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; padding-left: 16px; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px; overflow-x: auto;
+  }
+
+  /* architecture svg */
+  svg text { font-family: inherit; }
+  .svg-note { color: var(--muted); font-size: 12.5px; margin-top: 12px; display: flex; gap: 18px; flex-wrap: wrap; }
+  .key { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+  /* clean architecture layers */
+  .layers { display: flex; flex-direction: column; gap: 10px; }
+  .layer {
+    border-radius: 10px; padding: 14px 20px; border: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .layer .name { font-weight: 700; font-size: 15px; }
+  .layer .detail { color: var(--muted); font-size: 13px; flex: 1; min-width: 260px; }
+  .layer .count { font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .l-adapter { background: rgba(88,166,255,.08); border-color: rgba(88,166,255,.45); margin: 0; }
+  .l-usecase { background: rgba(188,140,255,.08); border-color: rgba(188,140,255,.45); margin: 0 36px; }
+  .l-entity  { background: rgba(63,185,80,.08);  border-color: rgba(63,185,80,.45);  margin: 0 72px; }
+  .l-util    { background: rgba(210,153,34,.08); border-color: rgba(210,153,34,.45); margin: 0 108px; }
+  .arrow-note { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+  @media (max-width: 720px) { .l-usecase,.l-entity,.l-util { margin: 0; } }
+
+  /* frontend cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px; position: relative;
+  }
+  .card h3 { font-size: 16px; margin-bottom: 4px; }
+  .card .path { font-family: ui-monospace, monospace; font-size: 12px; color: var(--blue); }
+  .card p { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .card .meta { margin-top: 12px; font-size: 12px; color: var(--text); display: flex; gap: 10px; flex-wrap: wrap; }
+  .card .meta span { background: var(--panel); border: 1px solid var(--border); padding: 1px 8px; border-radius: 999px; }
+  .card.hl { border-color: var(--orange); }
+  .card.hl::after {
+    content: 'FORK 수정'; position: absolute; top: 12px; right: 12px;
+    font-size: 10px; font-weight: 700; color: var(--orange);
+    border: 1px solid var(--orange); padding: 1px 7px; border-radius: 999px;
+  }
+
+  /* language bars */
+  .bars { display: flex; flex-direction: column; gap: 12px; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 90px; gap: 12px; align-items: center; }
+  .bar-row .lang { font-size: 13.5px; font-weight: 600; text-align: right; }
+  .bar-track { background: var(--panel2); border-radius: 6px; height: 22px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; min-width: 4px; }
+  .bar-row .loc { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* timeline */
+  .timeline { list-style: none; position: relative; padding-left: 26px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px;
+    width: 2px; background: var(--border);
+  }
+  .timeline li { position: relative; padding: 10px 0 10px 8px; }
+  .timeline li::before {
+    content: ''; position: absolute; left: -25px; top: 18px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--bg); border: 3px solid var(--blue);
+  }
+  .timeline li.fork-commit::before { border-color: var(--orange); }
+  .timeline .date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .timeline .msg { font-size: 14.5px; font-weight: 600; }
+  .timeline .hash { font-family: ui-monospace, monospace; font-size: 12px; color: var(--purple); margin-left: 8px; }
+  .timeline .note { font-size: 12.5px; color: var(--muted); }
+
+  /* fork customizations */
+  .forklist { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .forkitem { background: var(--panel2); border: 1px solid rgba(240,136,62,.45); border-radius: 10px; padding: 18px; }
+  .forkitem h3 { font-size: 15px; color: var(--orange); margin-bottom: 6px; }
+  .forkitem p { font-size: 13px; color: var(--muted); }
+  .forkitem code {
+    font-family: ui-monospace, monospace; font-size: 12px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 5px; color: var(--text);
+  }
+
+  footer { margin-top: 56px; text-align: center; color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Xtreme1 <span class="accent">GPU / RoboticsLAB</span></h1>
+    <div class="sub">멀티센서 AI 학습 데이터 라벨링 플랫폼 — 로보틱스 연구실 커스텀 포크 (upstream: xtreme1-io/xtreme1 v0.9.1)</div>
+    <div class="badges">
+      <span class="badge fork">⑂ Fork — CUDA 11.3 모델 서비스</span>
+      <span class="badge gpu">⚡ NVIDIA Runtime</span>
+      <span class="badge">Apache-2.0</span>
+      <span class="badge">Java 11 · Spring Boot 2.6</span>
+      <span class="badge">Vue 3 · TypeScript · Vite</span>
+      <span class="badge">Docker Compose</span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="num">10+</div><div class="label">Docker 서비스</div></div>
+      <div class="stat"><div class="num">4</div><div class="label">프론트엔드 앱</div></div>
+      <div class="stat"><div class="num">421</div><div class="label">Java 파일 (25.3k LOC)</div></div>
+      <div class="stat"><div class="num">1,513</div><div class="label">TS/Vue 파일 (153k LOC)</div></div>
+      <div class="stat"><div class="num">25</div><div class="label">DB 테이블</div></div>
+      <div class="stat"><div class="num">5</div><div class="label">커밋</div></div>
+    </div>
+  </header>
+
+  <!-- ======================= 시스템 아키텍처 ======================= -->
+  <section>
+    <h2>시스템 아키텍처 (docker-compose.yml)</h2>
+    <p class="desc">nginx(8190)가 단일 진입점. 프론트엔드 정적 파일과 백엔드 API, MinIO를 라우팅하고, GPU 모델 서비스는 <code>--profile model</code>로 기동됩니다.</p>
+    <div class="panel">
+      <svg viewBox="0 0 1100 640" width="100%" style="min-width:860px" font-size="13">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b949e"/>
+          </marker>
+          <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#f0883e"/>
+          </marker>
+        </defs>
+
+        <!-- user -->
+        <rect x="470" y="14" width="160" height="44" rx="22" fill="#1c2330" stroke="#8b949e"/>
+        <text x="550" y="41" text-anchor="middle" fill="#e6edf3" font-weight="600">👤 브라우저</text>
+        <line x1="550" y1="58" x2="550" y2="92" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="562" y="80" fill="#8b949e" font-size="11">:8190</text>
+
+        <!-- nginx -->
+        <rect x="440" y="94" width="220" height="52" rx="8" fill="rgba(88,166,255,.12)" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="550" y="116" text-anchor="middle" fill="#58a6ff" font-weight="700">nginx 1.22</text>
+        <text x="550" y="134" text-anchor="middle" fill="#8b949e" font-size="11">리버스 프록시 · deploy/nginx</text>
+
+        <!-- nginx -> frontend -->
+        <path d="M 470 146 C 380 175 300 185 255 208" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="300" y="172" fill="#8b949e" font-size="11">/ · /tool/*</text>
+        <!-- nginx -> backend -->
+        <line x1="550" y1="146" x2="550" y2="208" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="562" y="180" fill="#8b949e" font-size="11">/api → :8080</text>
+        <!-- nginx -> minio -->
+        <path d="M 640 146 C 790 170 880 230 905 318" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+        <text x="830" y="195" fill="#8b949e" font-size="11">/minio</text>
+
+        <!-- frontend -->
+        <rect x="105" y="210" width="300" height="96" rx="8" fill="rgba(63,185,80,.10)" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="255" y="234" text-anchor="middle" fill="#3fb950" font-weight="700">frontend :8291 (로컬 빌드)</text>
+        <text x="255" y="256" text-anchor="middle" fill="#e6edf3" font-size="12">main · pc-tool · image-tool · text-tool</text>
+        <text x="255" y="276" text-anchor="middle" fill="#8b949e" font-size="11">Vue 3 + Vite → dist/ 정적 서빙</text>
+        <text x="255" y="294" text-anchor="middle" fill="#8b949e" font-size="11">nginx 경로: /main, /tool/pc·image·text</text>
+
+        <!-- backend -->
+        <rect x="440" y="210" width="220" height="96" rx="8" fill="rgba(188,140,255,.10)" stroke="#bc8cff" stroke-width="1.5"/>
+        <text x="550" y="234" text-anchor="middle" fill="#bc8cff" font-weight="700">backend :8290</text>
+        <text x="550" y="256" text-anchor="middle" fill="#e6edf3" font-size="12">Spring Boot · 클린 아키텍처</text>
+        <text x="550" y="276" text-anchor="middle" fill="#8b949e" font-size="11">basicai/xtreme1-backend:v0.9.1</text>
+        <text x="550" y="294" text-anchor="middle" fill="#f0883e" font-size="11">+ zenix_snow 데이터셋 마운트 ⑂</text>
+
+        <!-- backend -> data stores -->
+        <path d="M 480 306 C 440 340 420 350 400 372" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+        <line x1="550" y1="306" x2="550" y2="372" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+        <path d="M 620 306 C 700 335 800 345 870 372" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#arr)"/>
+
+        <!-- mysql / redis / minio -->
+        <rect x="320" y="374" width="155" height="74" rx="8" fill="#1c2330" stroke="#d29922" stroke-width="1.5"/>
+        <text x="397" y="398" text-anchor="middle" fill="#d29922" font-weight="700">MySQL 5.7 :8191</text>
+        <text x="397" y="418" text-anchor="middle" fill="#8b949e" font-size="11">25개 테이블</text>
+        <text x="397" y="436" text-anchor="middle" fill="#8b949e" font-size="11">deploy/mysql/migration</text>
+
+        <rect x="500" y="374" width="130" height="74" rx="8" fill="#1c2330" stroke="#f85149" stroke-width="1.5"/>
+        <text x="565" y="398" text-anchor="middle" fill="#f85149" font-weight="700">Redis 6.2 :8192</text>
+        <text x="565" y="418" text-anchor="middle" fill="#8b949e" font-size="11">캐시 + Stream</text>
+        <text x="565" y="436" text-anchor="middle" fill="#8b949e" font-size="11">모델 잡 큐</text>
+
+        <rect x="822" y="374" width="170" height="74" rx="8" fill="#1c2330" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="907" y="398" text-anchor="middle" fill="#58a6ff" font-weight="700">MinIO :8193/94</text>
+        <text x="907" y="418" text-anchor="middle" fill="#8b949e" font-size="11">S3 호환 오브젝트 스토리지</text>
+        <text x="907" y="436" text-anchor="middle" fill="#8b949e" font-size="11">bucket: xtreme1</text>
+
+        <!-- backend -> model services -->
+        <path d="M 470 306 C 330 360 240 430 215 488" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrO)"/>
+        <path d="M 540 306 C 510 400 490 440 478 488" fill="none" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrO)"/>
+        <path d="M 660 290 C 760 330 800 430 790 488" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+        <text x="330" y="430" fill="#f0883e" font-size="11">HTTP (모델 추론)</text>
+
+        <!-- gpu model services group -->
+        <rect x="90" y="490" width="560" height="120" rx="10" fill="rgba(63,185,80,.05)" stroke="#3fb950" stroke-dasharray="6 4"/>
+        <text x="105" y="512" fill="#3fb950" font-size="11" font-weight="700">--profile model · runtime: nvidia (GPU)</text>
+
+        <rect x="110" y="524" width="220" height="70" rx="8" fill="#1c2330" stroke="#3fb950"/>
+        <text x="220" y="548" text-anchor="middle" fill="#e6edf3" font-weight="600" font-size="12">image-object-detection :8292</text>
+        <text x="220" y="568" text-anchor="middle" fill="#8b949e" font-size="11">COCO 80클래스 2D 검출</text>
+
+        <rect x="350" y="524" width="280" height="70" rx="8" fill="rgba(240,136,62,.10)" stroke="#f0883e" stroke-width="2"/>
+        <text x="490" y="544" text-anchor="middle" fill="#f0883e" font-weight="700" font-size="12">point-cloud-object-detection :8293 ⑂</text>
+        <text x="490" y="562" text-anchor="middle" fill="#e6edf3" font-size="11">kanghanbin/my-custom-xtreme1:v5</text>
+        <text x="490" y="580" text-anchor="middle" fill="#8b949e" font-size="11">CUDA 11.3 · OpenPCDet CenterPoint · shm 8GB</text>
+
+        <!-- helper services -->
+        <rect x="690" y="524" width="180" height="70" rx="8" fill="#1c2330" stroke="#8b949e"/>
+        <text x="780" y="548" text-anchor="middle" fill="#e6edf3" font-weight="600" font-size="12">pcd-tools :8295</text>
+        <text x="780" y="568" text-anchor="middle" fill="#8b949e" font-size="11">포인트클라우드 변환/렌더</text>
+
+        <rect x="890" y="524" width="190" height="70" rx="8" fill="#1c2330" stroke="#8b949e"/>
+        <text x="985" y="544" text-anchor="middle" fill="#e6edf3" font-weight="600" font-size="12">image-vect-visualization</text>
+        <text x="985" y="564" text-anchor="middle" fill="#8b949e" font-size="11">:8294 · 이미지 벡터 시각화</text>
+      </svg>
+      <div class="svg-note">
+        <span class="key"><span class="sw" style="background:#f0883e"></span>포크 커스터마이징</span>
+        <span class="key"><span class="sw" style="background:#3fb950"></span>GPU 프로필 서비스</span>
+        <span class="key"><span class="sw" style="border:1.5px dashed #8b949e; background:transparent"></span>HTTP RPC (점선)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 백엔드 ======================= -->
+  <section>
+    <h2>백엔드 — 클린 아키텍처 (backend/src/main/java/ai/basic/x1)</h2>
+    <p class="desc">의존성은 바깥 → 안쪽 한 방향만 허용. 단 하나의 문서화된 예외: usecase가 adapter의 DAO를 직접 호출 (MySQL 교체 계획 없음).</p>
+    <div class="panel">
+      <div class="layers">
+        <div class="layer l-adapter">
+          <span class="name" style="color:var(--blue)">adapter</span>
+          <span class="detail">REST 컨트롤러 19개 · JWT 보안 필터 · DTO ~55종 · MyBatis-Plus DAO 26개 · MinIO/RPC 포트 · Redis Stream 잡</span>
+          <span class="count" style="color:var(--blue)">269 files</span>
+        </div>
+        <div class="layer l-usecase">
+          <span class="name" style="color:var(--purple)">usecase</span>
+          <span class="detail">도메인별 비즈니스 로직 29개 클래스 — CommonConfig에서 수동 @Bean 등록 (컴포넌트 스캔 없음)</span>
+          <span class="count" style="color:var(--purple)">31 files</span>
+        </div>
+        <div class="layer l-entity">
+          <span class="name" style="color:var(--green)">entity</span>
+          <span class="detail">순수 BO ~80개 + 도메인 enum 31개 — Lombok 외 프레임워크 의존성 없음</span>
+          <span class="count" style="color:var(--green)">109 files</span>
+        </div>
+        <div class="layer l-util">
+          <span class="name" style="color:var(--yellow)">util</span>
+          <span class="detail">DefaultConverter(DTO↔BO↔Model 변환) · Page&lt;T&gt; · Redis 분산 락 · COCO 변환(script_ctl)</span>
+          <span class="count" style="color:var(--yellow)">11 files</span>
+        </div>
+      </div>
+      <div class="arrow-note">▼ 요청 흐름: Controller → DefaultConverter(DTO→BO) → UseCase → DAO → ApiResult&lt;T&gt; 래핑 응답</div>
+    </div>
+  </section>
+
+  <!-- ======================= 프론트엔드 ======================= -->
+  <section>
+    <h2>프론트엔드 — 독립 Vue 3 앱 4개 (frontend/)</h2>
+    <p class="desc">각 앱은 별도 package.json/vite 설정을 가진 독립 프로젝트. 빌드 결과물은 공유 dist/로 모여 nginx 하나로 서빙됩니다. 앱 간 코드 공유 없음 — URL 이동으로만 연결.</p>
+    <div class="cards">
+      <div class="card">
+        <h3>main</h3>
+        <div class="path">/ → dist/main · dev :3100</div>
+        <p>플랫폼 본체 (vben-admin 기반): 데이터셋·온톨로지·모델·팀 관리, 어노테이션 툴 런처</p>
+        <div class="meta"><span>1,118 files</span><span>Pinia</span><span>ant-design-vue</span><span>Jest</span></div>
+      </div>
+      <div class="card hl">
+        <h3>pc-tool</h3>
+        <div class="path">/tool/pc → dist/pc-tool · dev :3200</div>
+        <p>3D 포인트클라우드 큐보이드 어노테이션 (three.js). 포크에서 <b>multi-frame copy</b> (Alt+Shift+→, copyAllForward) 추가</p>
+        <div class="meta"><span>295 files</span><span>three.js 0.136</span><span>pc-editor / pc-render</span></div>
+      </div>
+      <div class="card">
+        <h3>image-tool</h3>
+        <div class="path">/tool/image → dist/image-tool · dev :3300</div>
+        <p>2D 이미지 어노테이션 — Konva 캔버스, bbox/폴리곤/폴리라인, polygon-clipping</p>
+        <div class="meta"><span>275 files</span><span>Konva 9</span><span>image-editor / image-ui</span></div>
+      </div>
+      <div class="card">
+        <h3>text-tool</h3>
+        <div class="path">/tool/text → dist/text-tool · dev :3300</div>
+        <p>텍스트/LLM 대화 어노테이션 (👍/👎 평가) — pc-tool에서 파생된 복제 코드베이스</p>
+        <div class="meta"><span>263 files</span><span>pc-tool fork</span><span>README은 stale</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 언어 분포 ======================= -->
+  <section>
+    <h2>언어 분포 (LOC)</h2>
+    <p class="desc">node_modules / dist / target 제외 기준.</p>
+    <div class="panel">
+      <div class="bars">
+        <div class="bar-row"><span class="lang" style="color:#3178c6">TypeScript</span><div class="bar-track"><div class="bar-fill" style="width:100%;background:#3178c6"></div></div><span class="loc">86,525</span></div>
+        <div class="bar-row"><span class="lang" style="color:#41b883">Vue</span><div class="bar-track"><div class="bar-fill" style="width:77.6%;background:#41b883"></div></div><span class="loc">67,141</span></div>
+        <div class="bar-row"><span class="lang" style="color:#f0883e">Java</span><div class="bar-track"><div class="bar-fill" style="width:29.2%;background:#f0883e"></div></div><span class="loc">25,278</span></div>
+        <div class="bar-row"><span class="lang" style="color:#bc8cff">Less</span><div class="bar-track"><div class="bar-fill" style="width:5.6%;background:#bc8cff"></div></div><span class="loc">4,811</span></div>
+        <div class="bar-row"><span class="lang" style="color:#58a6ff">TSX</span><div class="bar-track"><div class="bar-fill" style="width:2.5%;background:#58a6ff"></div></div><span class="loc">2,147</span></div>
+        <div class="bar-row"><span class="lang" style="color:#d29922">XML</span><div class="bar-track"><div class="bar-fill" style="width:2.2%;background:#d29922"></div></div><span class="loc">1,886</span></div>
+        <div class="bar-row"><span class="lang" style="color:#f85149">SQL</span><div class="bar-track"><div class="bar-fill" style="width:0.8%;background:#f85149"></div></div><span class="loc">673</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 포크 커스터마이징 ======================= -->
+  <section>
+    <h2>포크 커스터마이징 (upstream 대비 변경점)</h2>
+    <p class="desc">git 히스토리 5커밋이 upstream v0.9.1과의 차이를 모두 담고 있습니다.</p>
+    <div class="forklist">
+      <div class="forkitem">
+        <h3>① CUDA 11.3 모델 컨테이너</h3>
+        <p>upstream의 포인트클라우드 검출 이미지는 CUDA 10.2라 최신 GPU에서 실패 → <code>kanghanbin/my-custom-xtreme1:v5</code>로 교체. OpenPCDet CenterPoint 체크포인트(<code>cbgs_voxel0075_centerpoint_nds_6648.pth</code>) 실행, shm 8GB.</p>
+      </div>
+      <div class="forkitem">
+        <h3>② 연구실 데이터셋 마운트</h3>
+        <p>호스트의 <code>dataset_custom/zenix_dataset/dataset_0124</code>를 backend 컨테이너 <code>/app/data/zenix_snow</code>로 바인드 마운트. 머신 종속 설정이므로 compose 수정 시 보존 필요.</p>
+      </div>
+      <div class="forkitem">
+        <h3>③ pc-tool 멀티 프레임 복사</h3>
+        <p>커밋 <code>7473cb5</code>: TimeLine 툴바에 "Copy All to Next Frame" 버튼, <code>copyAllForward</code> 액션, <code>Alt+Shift+→</code> 핫키 추가. 일반 멀티프레임 데이터셋에서도 TimeLine·복사 활성화.</p>
+      </div>
+      <div class="forkitem">
+        <h3>④ 계층형 AGENTS.md 문서</h3>
+        <p>모듈 단위 13개 디렉토리에 AI 에이전트용 문서 생성 (<code>&lt;!-- Parent --&gt;</code> 계층 탐색 태그 포함). 루트 README의 CUDA 업그레이드 가이드는 <code>git show 6d7927c:README.md</code>로 복구 가능.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= 커밋 타임라인 ======================= -->
+  <section>
+    <h2>커밋 타임라인</h2>
+    <ul class="timeline">
+      <li class="fork-commit">
+        <div class="date">2026-06-10</div>
+        <div class="msg">docs: add hierarchical AGENTS.md documentation across modules<span class="hash">6680cca</span></div>
+        <div class="note">13개 모듈 디렉토리에 AI용 문서 +752줄</div>
+      </li>
+      <li class="fork-commit">
+        <div class="date">2026-03-24</div>
+        <div class="msg">Add multi-frame copy support and fix build errors<span class="hash">7473cb5</span></div>
+        <div class="note">pc-tool copyAllForward 기능 + 빌드 수정</div>
+      </li>
+      <li class="fork-commit">
+        <div class="date">2026-03-09</div>
+        <div class="msg">Update docker-compose.yml<span class="hash">af47969</span></div>
+        <div class="note">커스텀 모델 이미지·데이터셋 마운트 구성</div>
+      </li>
+      <li>
+        <div class="date">2026-03-09</div>
+        <div class="msg">Revise README for CUDA upgrade instructions<span class="hash">c6995aa</span></div>
+        <div class="note">루트 README 비움 (업그레이드 가이드는 git 히스토리에 보존)</div>
+      </li>
+      <li>
+        <div class="date">2026-02-26</div>
+        <div class="msg">Initial commit: Xtreme1 project for Robotics Lab<span class="hash">6d7927c</span></div>
+        <div class="note">upstream xtreme1 v0.9.1 기준 포크 시작</div>
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    생성: 2026-06-10 · 데이터 출처: docker-compose.yml, AGENTS.md 계층 문서, git log, 파일 통계 (find/wc)
+  </footer>
+
+</div>
+</body>
+</html>

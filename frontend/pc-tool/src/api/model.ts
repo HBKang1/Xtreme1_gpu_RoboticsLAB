@@ -49,6 +49,7 @@ export async function runModel(config: any) {
 export async function runTrack(payload: {
     seedObjects: any[];
     frames: { id: string; pointCloudUrl: string }[];
+    keep?: { z: boolean; rotation: boolean };
 }) {
     let url = '/modelApi/pointCloud/track';
     let data: any = await post(url, payload);

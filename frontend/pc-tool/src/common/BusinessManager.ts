@@ -59,6 +59,7 @@ export default class BusinessManager extends BaseBusinessManager {
     async runModelTrack(params: {
         seedObjects: any[];
         frames: { id: string }[];
+        keep?: { z: boolean; rotation: boolean };
     }): Promise<any[]> {
         const frames = await Promise.all(
             params.frames.map(async (f) => {
@@ -67,7 +68,11 @@ export default class BusinessManager extends BaseBusinessManager {
                 return { id: f.id, pointCloudUrl: info.pointsUrl };
             }),
         );
-        return await api.runTrack({ seedObjects: params.seedObjects, frames });
+        return await api.runTrack({
+            seedObjects: params.seedObjects,
+            frames,
+            keep: params.keep,
+        });
     }
 
     async getFrameObject(frame: IFrame | IFrame[]): Promise<{

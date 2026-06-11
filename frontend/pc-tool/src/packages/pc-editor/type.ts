@@ -238,6 +238,10 @@ export interface IConfig {
     projectPoint8: boolean;
     projectMap3d: boolean;
     boxMethod: 'AI' | 'STANDARD';
+    // model tracking (prototype)
+    trackFrameN: number;
+    trackKeepZ: boolean;
+    trackKeepRotation: boolean;
     //
     // type: string;
     pointSize: number;

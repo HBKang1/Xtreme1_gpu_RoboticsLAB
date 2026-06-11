@@ -133,6 +133,31 @@ export const copyAllForward = define({
     },
 });
 
+export const trackForward = define({
+    valid(editor: Editor) {
+        return editor.state.isSeriesFrame;
+    },
+    execute(editor: Editor) {
+        editor.dataManager.trackForward();
+    },
+});
+export const trackBackward = define({
+    valid(editor: Editor) {
+        return editor.state.isSeriesFrame;
+    },
+    execute(editor: Editor) {
+        editor.dataManager.trackBackward();
+    },
+});
+export const trackAllForward = define({
+    valid(editor: Editor) {
+        return editor.state.isSeriesFrame;
+    },
+    execute(editor: Editor) {
+        editor.dataManager.trackAllForward();
+    },
+});
+
 export const resultExpandToggle = define({
     execute(editor: Editor) {
         editor.dispatchEvent({ type: Event.RESULT_EXPAND_TOGGLE });

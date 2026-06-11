@@ -58,8 +58,11 @@ const zh: ILocale = {
     newBadge: '新',
     copyLeft1: '向左复制一帧(Alt+←)',
     copyRight1: '向右复制一帧(Alt+→)',
-    trackRight1: '向右追踪选中对象N帧(模型)',
-    trackAllRight1: '向右追踪全部对象N帧(模型)',
+    trackRight1: '向右追踪选中对象N帧(Alt+T)',
+    trackAllRight1: '向右追踪全部对象N帧(Alt+Shift+T)',
+    trackLeft1: '向左追踪选中对象N帧(模型)',
+    trackKeepZ: '保持种子高度(z)',
+    trackKeepRot: '保持种子朝向',
     'track-partial': '{{n}}/{{m}} 帧追踪成功',
 };
 

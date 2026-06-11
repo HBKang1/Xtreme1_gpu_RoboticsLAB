@@ -416,6 +416,10 @@ export default class DataManager {
             let results = await editor.businessManager.runModelTrack({
                 seedObjects: targetObjects,
                 frames: toIds.map((id) => ({ id })),
+                keep: {
+                    z: editor.state.config.trackKeepZ,
+                    rotation: editor.state.config.trackKeepRotation,
+                },
             });
 
             // addModelTrackData resolves a new box's inherited identity from the
@@ -488,6 +492,30 @@ export default class DataManager {
             object: 'all',
             method: 'copy',
             frameN: 1,
+        });
+    }
+    trackForward() {
+        return this.track({
+            direction: 'FORWARD',
+            object: 'select',
+            method: 'model',
+            frameN: this.editor.state.config.trackFrameN,
+        });
+    }
+    trackBackward() {
+        return this.track({
+            direction: 'BACKWARD',
+            object: 'select',
+            method: 'model',
+            frameN: this.editor.state.config.trackFrameN,
+        });
+    }
+    trackAllForward() {
+        return this.track({
+            direction: 'FORWARD',
+            object: 'all',
+            method: 'model',
+            frameN: this.editor.state.config.trackFrameN,
         });
     }
     async track(option: {
@@ -567,9 +595,11 @@ export default class DataManager {
         let curId = dataInfo.id;
 
         // previous-frame positions of the same tracks give the server an initial
-        // velocity for the constant-velocity fallback (null -> stationary)
+        // velocity for the constant-velocity fallback (null -> stationary).
+        // "previous" is relative to propagation order: when tracking BACKWARD,
+        // the reference is the next frame in time
         let prevMap = {} as Record<string, Box>;
-        let prevFrame = frames[frameIndex - 1];
+        let prevFrame = frames[frameIndex + (direction === 'BACKWARD' ? 1 : -1)];
         if (prevFrame) {
             (this.getFrameObject(prevFrame.id) || []).forEach((e) => {
                 if (e instanceof Box && !e.userData.invisibleFlag) {

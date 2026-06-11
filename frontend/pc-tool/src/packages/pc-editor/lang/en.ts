@@ -58,8 +58,11 @@ const en = {
     newBadge: 'New',
     copyLeft1: 'Copy one frame backward (Alt+←)',
     copyRight1: 'Copy one frame forward (Alt+→)',
-    trackRight1: 'Track selection N frames forward (model)',
-    trackAllRight1: 'Track all N frames forward (model)',
+    trackRight1: 'Track selection N frames forward (Alt+T)',
+    trackAllRight1: 'Track all N frames forward (Alt+Shift+T)',
+    trackLeft1: 'Track selection N frames backward (model)',
+    trackKeepZ: 'Keep seed height (z)',
+    trackKeepRot: 'Keep seed heading',
     'track-partial': '{{n}}/{{m}} frames tracked',
 };
 

@@ -40,6 +40,7 @@ export default class BusinessManager {
     async runModelTrack(params: {
         seedObjects: any[];
         frames: { id: string }[];
+        keep?: { z: boolean; rotation: boolean };
     }): Promise<any[]> {
         throw 'runModelTrack implement error';
     }

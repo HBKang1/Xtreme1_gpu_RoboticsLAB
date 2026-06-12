@@ -14,3 +14,8 @@ export async function submitData(dataId: string) {
     let url = `/api/data/flow/submit/${dataId}`;
     let data = await post(url);
 }
+
+export async function resetAnnotationStatus(dataIds: string[]) {
+    let url = `/api/data/flow/resetAnnotationStatus`;
+    let data = await post(url, { dataIds });
+}

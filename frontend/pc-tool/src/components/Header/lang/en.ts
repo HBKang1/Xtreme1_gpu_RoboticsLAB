@@ -8,6 +8,7 @@ const en = {
     'btn-skipped': 'Skipped',
     'btn-submit': 'Submit',
     'btn-update': 'Update',
+    'btn-not-annotated': 'Mark as Not Annotated',
     'btn-modify': 'Modify',
     'btn-full': 'Full Screen',
     'btn-full-exit': 'Exit Full Screen',

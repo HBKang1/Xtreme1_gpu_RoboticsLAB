@@ -14,6 +14,7 @@ export default function useHeader() {
     let { state, bsState } = editor;
     let editorState = editor.state;
     let dataIndex = ref(state.frameIndex + 1);
+    let resetting = ref(false);
     let iState = reactive({
         fullScreen: false,
         dataName: '',
@@ -243,6 +244,27 @@ export default function useHeader() {
         }
     }
 
+    async function onResetStatus() {
+        let { frameIndex, frames, isSeriesFrame } = editor.state;
+        const seriesFrameId = editor.bsState.seriesFrameId;
+        let frame = frames[frameIndex];
+
+        resetting.value = true;
+        try {
+            if (isSeriesFrame) {
+                await api.resetAnnotationStatus([seriesFrameId ?? '']);
+                await updateDataStatus(frames);
+            } else {
+                await api.resetAnnotationStatus([frame.id]);
+                await updateDataStatus([frame]);
+            }
+            editor.showMsg('success', 'Reset Success');
+        } catch (error: any) {
+            editor.handleErr(error, 'Operation Error');
+        }
+        resetting.value = false;
+    }
+
     async function updateDataStatus(frames: IFrame[]) {
         let statusMap = await api.getDataStatus(frames.map((e) => e.id));
         frames.forEach((frame) => {
@@ -308,6 +330,7 @@ export default function useHeader() {
         iState,
         currentFrame,
         blocking,
+        resetting,
         dataIndex,
         onIndexChange,
         onFullScreen,
@@ -321,5 +344,6 @@ export default function useHeader() {
         onToggleSkip,
         onSubmit,
         onModify,
+        onResetStatus,
     };
 }

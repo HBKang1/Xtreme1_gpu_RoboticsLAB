@@ -1,5 +1,6 @@
 package ai.basic.x1.usecase;
 
+import ai.basic.x1.adapter.api.context.RequestContextHolder;
 import ai.basic.x1.adapter.port.dao.DataEditDAO;
 import ai.basic.x1.adapter.port.dao.DataInfoDAO;
 import ai.basic.x1.adapter.port.dao.mybatis.model.DataEdit;
@@ -95,8 +96,11 @@ public class DataFlowUseCase {
 
     @Transactional(rollbackFor = Exception.class)
     public void resetAnnotationStatus(List<Long> dataIds) {
+        // only locks held by other users block the reset, so the lock holder can reset from the editor
+        var currentUserId = RequestContextHolder.getContext().getUserInfo().getId();
         var lockCount = dataEditDAO.count(Wrappers.lambdaQuery(DataEdit.class)
-                .in(DataEdit::getDataId, dataIds).or().in(DataEdit::getSceneId, dataIds));
+                .ne(DataEdit::getCreatedBy, currentUserId)
+                .and(wq -> wq.in(DataEdit::getDataId, dataIds).or().in(DataEdit::getSceneId, dataIds)));
         if (lockCount > 0) {
             throw new UsecaseException(UsecaseCode.DATASET_DATA_OTHERS_ANNOTATING);
         }

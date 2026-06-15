@@ -457,6 +457,18 @@
         mergeBaseTrackId.value = trackId;
         editor.showMsg('success', editor.lang('successSetMergeBase'));
     }
+    // the visible "Cuboid N" is the box's own userData.trackName; find it from a
+    // loaded box (trackManager.trackMap metadata can hold a different trackName)
+    function findTrackName(trackId: string): string {
+        for (const frame of editor.state.frames) {
+            const objs = editor.dataManager.getFrameObject(frame.id) || [];
+            const box = objs.find(
+                (o) => o instanceof Box && (o.userData as any).trackId === trackId,
+            ) as Box | undefined;
+            if (box) return ((box.userData as any).trackName as string) || '';
+        }
+        return '';
+    }
     function onMergeIntoBase() {
         const trackId = editor.getCurTrack();
         const baseTrackId = mergeBaseTrackId.value;
@@ -479,6 +491,19 @@
             return;
         }
         try {
+            // pin the base's real (displayed) trackName so merged boxes adopt it
+            // instead of a stale trackMap metadata name
+            const baseName = findTrackName(baseTrackId);
+            if (baseName) {
+                if (editor.trackManager.hasTrackObject(baseTrackId)) {
+                    editor.trackManager.updateTrackData(baseTrackId, { trackName: baseName });
+                } else {
+                    editor.trackManager.addTrackObject(baseTrackId, {
+                        trackId: baseTrackId,
+                        trackName: baseName,
+                    });
+                }
+            }
             editor.trackManager.mergeTrackObject(trackId, baseTrackId);
             mergeBaseTrackId.value = '';
             editor.showMsg('success', editor.lang('successMerge'));

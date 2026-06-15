@@ -43,3 +43,15 @@ frontend/**/vite.config.local.*
 *.pth
 
 __pycache__/
+
+### Zenix finetune — generated artifacts (not source) ###
+/data/
+/training/exports/
+/training/*.log
+/training/recall_ab_results.json
+/training/val_eval_ab.json
+/training/fov_sector.json
+/training/fov_sector_smoke.json
+/training/fov_Zenix_*.json
+# stray nested OMC state dirs (repo-root .omc is already ignored)
+**/.omc/

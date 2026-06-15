@@ -307,6 +307,37 @@
                             <template #icon><SettingOutlined /></template>
                         </a-button>
                     </a-popover>
+                    <!-- track merge / split (act on selected track + current frame) -->
+                    <a-divider
+                        type="vertical"
+                        style="height: 24px; background-color: #57575c; margin: 0 6px"
+                    />
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('menuSetMergeBase') }}</template>
+                        <a-button :disabled="disable" @click="onSetMergeBase" style="width: 40px">
+                            <template #icon><PushpinOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{
+                            mergeBaseTrackId
+                                ? editor.lang('menuMergeIntoBase')
+                                : editor.lang('mergeNoBaseHint')
+                        }}</template>
+                        <a-button
+                            :disabled="disable || !mergeBaseTrackId"
+                            @click="onMergeIntoBase"
+                            style="width: 40px"
+                        >
+                            <template #icon><MergeCellsOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('menuSplitHere') }}</template>
+                        <a-button :disabled="disable" @click="onSplitHere" style="width: 40px">
+                            <template #icon><SplitCellsOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
                 </template>
             </div>
         </div>
@@ -345,8 +376,14 @@
         AimOutlined,
         SettingOutlined,
         LinkOutlined,
+        PushpinOutlined,
+        MergeCellsOutlined,
+        SplitCellsOutlined,
     } from '@ant-design/icons-vue';
+    import { Box } from 'pc-render';
     import { useInjectEditor } from '../../state';
+    import { useTrackMergeBase } from './useTrackMergeBase';
+    const { mergeBaseTrackId } = useTrackMergeBase();
     const props = defineProps<{
         state: IBottomState;
     }>();
@@ -408,6 +445,70 @@
     function onAutoLoadHandle() {
         autoLoadSwitch.value?.blur();
         onAction('AutoLoad');
+    }
+
+    // --- track merge / split (operate on the selected track + current frame) ---
+    function onSetMergeBase() {
+        const trackId = editor.getCurTrack();
+        if (!trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+        mergeBaseTrackId.value = trackId;
+        editor.showMsg('success', editor.lang('successSetMergeBase'));
+    }
+    function onMergeIntoBase() {
+        const trackId = editor.getCurTrack();
+        const baseTrackId = mergeBaseTrackId.value;
+        if (!trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+        if (!baseTrackId || baseTrackId === trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoBaseHint'));
+            return;
+        }
+        const { code } = editor.trackManager.canMerge(trackId, baseTrackId);
+        if (code !== 'ok') {
+            editor.showMsg(
+                'warning',
+                code === 'object_repeat'
+                    ? editor.lang('warnObjectRepeat')
+                    : editor.lang('warnClassTypeDiff'),
+            );
+            return;
+        }
+        try {
+            editor.trackManager.mergeTrackObject(trackId, baseTrackId);
+            mergeBaseTrackId.value = '';
+            editor.showMsg('success', editor.lang('successMerge'));
+        } catch (error) {
+            editor.showMsg('error', editor.lang('errorMerge'));
+        }
+    }
+    function onSplitHere() {
+        const trackId = editor.getCurTrack();
+        if (!trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+        const start = editor.state.frameIndex;
+        if (!editor.trackManager.canSplit(trackId, start)) {
+            editor.showMsg('warning', editor.lang('warnEmptyObject'));
+            return;
+        }
+        const box = editor.pc.selection.find((o) => o instanceof Box) as Box | undefined;
+        const userData = box ? box.userData : ({} as any);
+        try {
+            editor.trackManager.splitTrackObject({
+                trackId,
+                start,
+                userData: { classType: userData.classType, classId: userData.classId } as any,
+            });
+            editor.showMsg('success', editor.lang('successSplit'));
+        } catch (error) {
+            editor.showMsg('error', editor.lang('errorSplit'));
+        }
     }
     function onAction(action: IBarAction) {
         const { frames } = editor.state;

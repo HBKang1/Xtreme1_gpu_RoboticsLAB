@@ -72,13 +72,14 @@ const en = {
     trackConnectRangeAll: 'Whole sequence',
     trackConnectRangeCurrent: 'From current frame',
     trackConnectK: 'Miss tolerance (K)',
-    // track merge / split context menu
+    // track merge / split toolbar
     menuSetMergeBase: 'Set as merge base',
     menuMergeIntoBase: 'Merge into base',
-    menuSplitHere: 'Split here',
+    menuSplitHere: 'Split at current frame',
     successSetMergeBase: 'Merge base set',
-    mergeNoBaseHint: 'Right-click another track first and choose "Set as merge base"',
+    mergeNoBaseHint: 'Select a track and click "Set as merge base" first',
     mergeSameTrackHint: 'This track is already the merge base',
+    mergeNoSelect: 'Select an object first',
     successMerge: 'Tracks merged',
     successSplit: 'Track split',
     errorMerge: 'Merge failed. Please try again',

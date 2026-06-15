@@ -35,42 +35,6 @@
                 </span>
             </div>
         </div>
-        <!-- 轨迹合并/分割 右键菜单 -->
-        <a-dropdown
-            :visible="menu.visible"
-            :trigger="[]"
-            @visibleChange="(v: boolean) => (menu.visible = v)"
-        >
-            <span
-                :style="{
-                    position: 'fixed',
-                    left: menu.x + 'px',
-                    top: menu.y + 'px',
-                    width: '0px',
-                    height: '0px',
-                }"
-            ></span>
-            <template #overlay>
-                <a-menu @click="onMenuClick">
-                    <a-menu-item key="setBase">
-                        {{ editor.lang('menuSetMergeBase') }}
-                    </a-menu-item>
-                    <a-menu-item key="merge" :disabled="mergeDisabled">
-                        <a-tooltip
-                            v-if="mergeDisabled"
-                            placement="right"
-                            :title="mergeDisabledHint"
-                        >
-                            <span>{{ editor.lang('menuMergeIntoBase') }}</span>
-                        </a-tooltip>
-                        <span v-else>{{ editor.lang('menuMergeIntoBase') }}</span>
-                    </a-menu-item>
-                    <a-menu-item key="split">
-                        {{ editor.lang('menuSplitHere') }}
-                    </a-menu-item>
-                </a-menu>
-            </template>
-        </a-dropdown>
     </div>
 </template>
 <script lang="ts" setup>

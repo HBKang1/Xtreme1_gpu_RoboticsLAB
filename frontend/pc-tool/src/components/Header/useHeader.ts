@@ -250,31 +250,38 @@ export default function useHeader() {
         let frame = frames[frameIndex];
 
         submittingFrame.value = true;
+        let ok = false;
         try {
             await editor.saveObject([frame], true);
             await api.submitFrameData(frame.id);
             await updateDataStatus([frame]);
             editor.showMsg('success', 'Submit Success');
+            ok = true;
         } catch (error: any) {
             editor.handleErr(error, 'Operation Error');
         }
         submittingFrame.value = false;
+
+        // advance to the next frame so the annotator can keep moving through the scene
+        if (ok) {
+            if (frameIndex !== frames.length - 1) {
+                editor.loadFrame(frameIndex + 1);
+            } else {
+                editor.showMsg('warning', 'This is the last frame');
+            }
+        }
     }
 
     async function onResetStatus() {
-        let { frameIndex, frames, isSeriesFrame } = editor.state;
-        const seriesFrameId = editor.bsState.seriesFrameId;
+        let { frameIndex, frames } = editor.state;
         let frame = frames[frameIndex];
 
+        // reset only the current frame (the backend also drops the parent scene to
+        // NOT_ANNOTATED since it is no longer fully annotated)
         resetting.value = true;
         try {
-            if (isSeriesFrame) {
-                await api.resetAnnotationStatus([seriesFrameId ?? '']);
-                await updateDataStatus(frames);
-            } else {
-                await api.resetAnnotationStatus([frame.id]);
-                await updateDataStatus([frame]);
-            }
+            await api.resetAnnotationStatus([frame.id]);
+            await updateDataStatus([frame]);
             editor.showMsg('success', 'Reset Success');
         } catch (error: any) {
             editor.handleErr(error, 'Operation Error');

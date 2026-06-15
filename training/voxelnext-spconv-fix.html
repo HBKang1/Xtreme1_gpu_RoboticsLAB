@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoxelNeXt 파인튜닝 학습 실패 원인 & 해결</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --ink:#e6edf3; --muted:#8b949e;
+    --border:#30363d; --red:#f85149; --redbg:#3d1518; --green:#3fb950; --greenbg:#10331c;
+    --amber:#d29922; --amberbg:#3a2d10; --blue:#58a6ff; --bluebg:#0d2b4e; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box}
+  body{font-family:'Pretendard','Noto Sans KR',-apple-system,sans-serif;background:var(--bg);color:var(--ink);margin:0;line-height:1.6}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:25px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:22px}
+  h2{font-size:18px;margin:34px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;margin-right:6px}
+  .t-red{background:var(--redbg);color:var(--red)} .t-green{background:var(--greenbg);color:var(--green)}
+  .t-amber{background:var(--amberbg);color:var(--amber)} .t-blue{background:var(--bluebg);color:var(--blue)}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin:12px 0}
+  code,pre{font-family:ui-monospace,'SFMono-Regular',Consolas,monospace}
+  pre{background:#0b0f14;border:1px solid var(--border);border-radius:8px;padding:13px 15px;overflow-x:auto;font-size:12.5px;line-height:1.5}
+  code{background:#21262d;padding:1px 6px;border-radius:5px;font-size:12.5px;color:var(--purple)}
+  .err{background:var(--redbg);border:1px solid #5d2327;border-radius:8px;padding:12px 15px;color:#ffb4ab;font-size:13px;font-family:ui-monospace,monospace}
+  .del{color:var(--red)} .add{color:var(--green)}
+  .flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;margin:14px 0}
+  .step{flex:1;min-width:160px;background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:12px 13px}
+  .step .n{font-size:11px;color:var(--muted);font-weight:700}
+  .step .h{font-weight:700;font-size:13.5px;margin:3px 0}
+  .step .d{font-size:12px;color:var(--muted)}
+  .arrow{display:flex;align-items:center;color:var(--muted);font-size:20px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+  th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-size:12px}
+  .ok{color:var(--green);font-weight:700}.no{color:var(--red);font-weight:700}
+  .note{font-size:12.5px;color:var(--muted)}
+  ul{margin:6px 0;padding-left:20px}li{margin:3px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>VoxelNeXt 파인튜닝 학습 실패 — 원인 & 해결</h1>
+<div class="sub">Xtreme1 GT → OpenPCDet VoxelNeXt 파인튜닝 · 2026-06-15 · 학습서버 gh@192.168.0.145 (RTX 3090)</div>
+
+<div class="flow">
+  <div class="step" style="border-color:#5d2327"><div class="n">시도 1</div><div class="h">❌ 즉시 크래시</div><div class="d">사전학습 ckpt 로드 중 <code>AssertionError</code> — 첫 iter 도달 전 종료</div></div>
+  <div class="arrow">→</div>
+  <div class="step" style="border-color:#3a2d10"><div class="n">진단</div><div class="h">🔎 spconv 헤드 shape 불일치</div><div class="d">strict=False인데도 하드 assert가 스킵을 막음</div></div>
+  <div class="arrow">→</div>
+  <div class="step" style="border-color:#1f6feb44"><div class="n">패치</div><div class="h">🔧 assert → 조건부 스킵</div><div class="d">학습측 OpenPCDet 1줄 수정</div></div>
+  <div class="arrow">→</div>
+  <div class="step" style="border-color:#10331c"><div class="n">시도 2</div><div class="h">✅ 학습 진행</div><div class="d">Loss 10.8 → 6.2 수렴, 50에폭 진행</div></div>
+</div>
+
+<h2><span class="tag t-red">에러</span>무엇이 터졌나</h2>
+<div class="card">
+<p style="margin-top:0">VoxelNeXt를 nuScenes 사전학습 가중치로 파인튜닝하려고 <code>--pretrained_model</code>을 줬더니, 학습 시작 직전 <b>사전학습 ckpt를 모델에 로드하는 단계</b>에서 즉시 죽었습니다. (CenterPoint 파인튜닝은 동일 환경·동일 spconv에서 멀쩡히 됐음)</p>
+<div class="err">
+Traceback (most recent call last):<br>
+&nbsp;&nbsp;File "train.py", line 143, in main<br>
+&nbsp;&nbsp;&nbsp;&nbsp;model.load_params_from_file(filename=args.pretrained_model, ...)<br>
+&nbsp;&nbsp;File ".../detectors/detector3d_template.py", line 345, in _load_state_dict<br>
+&nbsp;&nbsp;&nbsp;&nbsp;assert val.shape.__len__() == 5, 'currently only spconv 3D is supported'<br>
+<b>AssertionError: currently only spconv 3D is supported</b>
+</div>
+</div>
+
+<h2><span class="tag t-amber">원인</span>왜 터졌나</h2>
+<div class="card">
+<p style="margin-top:0">OpenPCDet의 <code>_load_state_dict</code>는 spconv(희소 합성곱) 가중치를 로드할 때 <b>버전 간 shape 차이를 자동 보정</b>하는 로직이 있습니다. 사전학습과 현재 모델의 spconv 가중치 shape가 다르면:</p>
+<pre>for key, val in pretrained.items():
+    if key in spconv_keys and state_dict[key].shape != val.shape:   # shape 불일치
+        val_native = val.transpose(-1,-2)        # ① 전치로 맞춰보기
+        if val_native.shape == state_dict[key].shape: val = val_native
+        else:
+            <span class="del">assert val.shape.__len__() == 5, 'currently only spconv 3D is supported'</span>  # ← 여기서 죽음
+            val_implicit = val.permute(4,0,1,2,3)  # ② 차원 재배열로 맞춰보기
+    if state_dict[key].shape == val.shape:        # ③ 그래도 맞으면 로드, 아니면 스킵
+        update_model_state[key] = val</pre>
+
+<p><b>핵심</b>: 파인튜닝은 클래스가 다릅니다 (nuScenes 10클래스 → zenix 6클래스, 헤드 그룹 구조도 다름, 입력피처 5→4). 그래서 <b>검출 헤드의 spconv 가중치가 사전학습과 shape가 다릅니다.</b> 원래 의도는 "<code>strict=False</code>니까 안 맞는 키는 그냥 스킵(헤드는 새로 초기화)"인데, <b>①②로도 못 맞추는 비-5D spconv 키에서 하드 <code>assert</code>가 스킵을 막고 프로세스를 죽여버립니다.</b></p>
+</div>
+
+<h2><span class="tag t-blue">왜 CenterPoint는 됐나</span>아키텍처 차이</h2>
+<div class="card">
+<table>
+<tr><th></th><th>CenterPoint (성공)</th><th>VoxelNeXt (실패)</th></tr>
+<tr><td>검출 헤드</td><td>Dense BEV 위 <b>일반 <code>nn.Conv2d</code></b></td><td>희소 특징 위 <b>spconv (SubMConv)</b></td></tr>
+<tr><td>헤드 가중치가 <code>spconv_keys</code>?</td><td class="no">아니오</td><td class="ok">예</td></tr>
+<tr><td>클래스 다른 헤드 로드 시</td><td>spconv 보정 분기 <b>안 탐</b> → ③에서 조용히 스킵</td><td>spconv 보정 분기 <b>탐</b> → <code>assert</code> 직격</td></tr>
+<tr><td>결과</td><td class="ok">헤드 재초기화 + 정상 학습</td><td class="no">로드 단계 크래시</td></tr>
+</table>
+<p class="note">즉 같은 코드라도, VoxelNeXt는 "완전 희소(fully sparse)" 구조라 헤드까지 spconv 키여서 이 보정 분기를 타고 assert에 걸린 것입니다. CenterPoint 헤드는 일반 conv라 애초에 이 분기를 안 탑니다.</p>
+</div>
+
+<h2><span class="tag t-green">해결</span>패치 — assert를 조건부 스킵으로</h2>
+<div class="card">
+<p style="margin-top:0">학습측 OpenPCDet <code>pcdet/models/detectors/detector3d_template.py</code>의 하드 <code>assert</code>를 조건문으로 바꿔, <b>보정 불가한 spconv 키는 그냥 흘려보내고 ③의 shape 일치 검사에서 자연스럽게 스킵</b>되게 했습니다 (= 헤드 재초기화, 파인튜닝의 정상 동작).</p>
+<pre><span class="del">- else:</span>
+<span class="del">-     assert val.shape.__len__() == 5, 'currently only spconv 3D is supported'</span>
+<span class="del">-     val_implicit = val.permute(4, 0, 1, 2, 3)</span>
+<span class="del">-     if val_implicit.shape == state_dict[key].shape:</span>
+<span class="del">-         val = val_implicit.contiguous()</span>
+<span class="add">+ elif val.shape.__len__() == 5:</span>
+<span class="add">+     val_implicit = val.permute(4, 0, 1, 2, 3)</span>
+<span class="add">+     if val_implicit.shape == state_dict[key].shape:</span>
+<span class="add">+         val = val_implicit.contiguous()</span>
+<span class="add">+ # else: 보정 불가 spconv 키(클래스 다른 파인튜닝 헤드)는 흘려보냄 →</span>
+<span class="add">+ #       아래 shape 일치 검사에서 스킵 → 해당 헤드는 새로 초기화됨</span></pre>
+<p class="note">변경 전: 비-5D spconv 키 만나면 <b>죽음</b>. &nbsp; 변경 후: 비-5D & 보정 불가 키는 <b>스킵</b> → 나머지 백본 가중치는 정상 이전, 헤드만 재초기화.</p>
+</div>
+
+<h2><span class="tag t-green">안전성</span>이 패치가 안전한 이유</h2>
+<div class="card">
+<ul>
+<li><b>학습측만 수정</b>: 패치는 학습 서버의 OpenPCDet에만 적용. <b>서빙 이미지는 무관</b> — 서빙은 내가 학습한 ckpt를 <u>같은 cfg</u>로 로드하므로 shape가 100% 일치 → 보정 분기 자체를 안 탐.</li>
+<li><b>의도된 동작과 일치</b>: <code>strict=False</code> 로드의 본래 목적이 "안 맞는 키는 스킵". 패치는 그 목적을 spconv 키에도 적용했을 뿐, 새 동작을 만들지 않음.</li>
+<li><b>가중치 이전은 보존</b>: shape가 맞는 백본(VoxelResBackBone8xVoxelNeXt) 가중치는 그대로 로드됨. 입력 첫 레이어(4≠5)와 클래스 헤드만 재초기화 — 파인튜닝의 정상 절차.</li>
+<li><b>결과로 검증됨</b>: 패치 후 재실행 시 사전학습 로드 통과, Loss 10.8 → 6.2로 정상 수렴, GPU 정상 사용.</li>
+</ul>
+</div>
+
+<h2>요약</h2>
+<div class="card">
+<table>
+<tr><th>구분</th><th>내용</th></tr>
+<tr><td>증상</td><td>VoxelNeXt 파인튜닝이 사전학습 로드 단계에서 <code>AssertionError: currently only spconv 3D is supported</code>로 즉시 종료</td></tr>
+<tr><td>직접 원인</td><td>클래스가 다른(10→6) 파인튜닝이라 검출 헤드 spconv 가중치 shape 불일치 → 버전보정 로직의 하드 assert가 스킵을 막음</td></tr>
+<tr><td>근본 원인</td><td>VoxelNeXt는 헤드까지 완전 희소(spconv) → spconv 보정 분기를 탐. (CenterPoint 헤드는 일반 conv라 안 탐)</td></tr>
+<tr><td>해결</td><td><code>detector3d_template._load_state_dict</code>의 <code>assert</code>를 <code>elif</code>로 바꿔 보정 불가 키를 스킵(헤드 재초기화)</td></tr>
+<tr><td>영향 범위</td><td>학습 서버 OpenPCDet만. 서빙·CenterPoint 경로 무영향</td></tr>
+<tr><td>상태</td><td class="ok">해결됨 — VoxelNeXt 전량 파인튜닝 정상 진행 중 (50에폭)</td></tr>
+</table>
+</div>
+
+<div class="note" style="margin-top:24px;text-align:center">파일: training/voxelnext-spconv-fix.html · 관련 cfg: training/cfgs/voxelnext_zenix.yaml · 패치: 학습서버 OpenPCDet detector3d_template.py</div>
+
+</div>
+</body>
+</html>

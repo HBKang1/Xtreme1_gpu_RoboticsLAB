@@ -94,6 +94,42 @@ public class DataFlowUseCase {
         }
     }
 
+    /**
+     * Submit a single frame without rolling the whole scene up. The scene is only promoted to
+     * ANNOTATED once every one of its frames has been submitted; otherwise it stays NOT_ANNOTATED.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void submitFrame(Long itemId) {
+        var dataEdit = dataEditUseCase.checkLock(Sets.newHashSet(itemId));
+        DataStatusEnum status = Optional.ofNullable(dataInfoDAO.getById(itemId)).orElseThrow().getStatus();
+        DataAnnotationStatusEnum annotationStatus = DataStatusEnum.VALID.equals(status)
+                ? DataAnnotationStatusEnum.ANNOTATED : DataAnnotationStatusEnum.INVALID;
+        dataInfoDAO.updateById(DataInfo.builder().id(itemId).status(status).annotationStatus(annotationStatus).build());
+
+        var sceneId = dataEdit.getSceneId();
+        if (ObjectUtil.isNotNull(sceneId)) {
+            var notAnnotatedCount = dataInfoDAO.count(Wrappers.lambdaQuery(DataInfo.class)
+                    .eq(DataInfo::getDatasetId, dataEdit.getDatasetId())
+                    .eq(DataInfo::getParentId, sceneId)
+                    .eq(DataInfo::getAnnotationStatus, DataAnnotationStatusEnum.NOT_ANNOTATED));
+            if (notAnnotatedCount == 0) {
+                // every frame submitted: mirror the full-submit scene status rule
+                var invalidCount = dataInfoDAO.count(Wrappers.lambdaQuery(DataInfo.class)
+                        .eq(DataInfo::getDatasetId, dataEdit.getDatasetId())
+                        .eq(DataInfo::getParentId, sceneId)
+                        .eq(DataInfo::getStatus, DataStatusEnum.INVALID));
+                if (invalidCount == 0) {
+                    dataInfoDAO.updateById(DataInfo.builder().id(sceneId).status(DataStatusEnum.VALID).annotationStatus(DataAnnotationStatusEnum.ANNOTATED).build());
+                } else {
+                    dataInfoDAO.updateById(DataInfo.builder().id(sceneId).status(DataStatusEnum.INVALID).annotationStatus(DataAnnotationStatusEnum.INVALID).build());
+                }
+            } else {
+                // some frames still pending: the scene is not fully annotated yet
+                dataInfoDAO.updateById(DataInfo.builder().id(sceneId).annotationStatus(DataAnnotationStatusEnum.NOT_ANNOTATED).build());
+            }
+        }
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void resetAnnotationStatus(List<Long> dataIds) {
         // only locks held by other users block the reset, so the lock holder can reset from the editor

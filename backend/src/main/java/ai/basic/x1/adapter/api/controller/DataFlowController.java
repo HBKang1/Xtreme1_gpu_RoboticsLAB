@@ -37,6 +37,11 @@ public class DataFlowController {
         dataFlowUseCase.submit(itemId);
     }
 
+    @PostMapping("/submitFrame/{itemId}")
+    public void submitFrame(@PathVariable Long itemId){
+        dataFlowUseCase.submitFrame(itemId);
+    }
+
     @PostMapping("/resetAnnotationStatus")
     public void resetAnnotationStatus(@RequestBody @Validated DataResetAnnotationStatusReqDTO dto) {
         dataFlowUseCase.resetAnnotationStatus(dto.getDataIds());

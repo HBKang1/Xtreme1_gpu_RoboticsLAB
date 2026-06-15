@@ -72,6 +72,20 @@ const zh: ILocale = {
     trackConnectRangeAll: '整个序列',
     trackConnectRangeCurrent: '从当前帧开始',
     trackConnectK: '丢失容忍 (K)',
+    // track merge / split context menu
+    menuSetMergeBase: '设为合并基准',
+    menuMergeIntoBase: '合并到基准轨迹',
+    menuSplitHere: '在此处分割',
+    successSetMergeBase: '合并基准已设置',
+    mergeNoBaseHint: '请先右键另一轨迹并选择"设为合并基准"',
+    mergeSameTrackHint: '该轨迹已是合并基准',
+    successMerge: '轨迹已合并',
+    successSplit: '轨迹已分割',
+    errorMerge: '合并失败, 请重试',
+    errorSplit: '分割失败, 请重试',
+    warnObjectRepeat: '无法合并：两条轨迹在同一帧均有框',
+    warnClassTypeDiff: '无法合并：两条轨迹的类别不同',
+    warnEmptyObject: '当前帧无可分割内容',
 };
 
 export { zh };

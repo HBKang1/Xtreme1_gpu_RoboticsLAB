@@ -35,15 +35,53 @@
                 </span>
             </div>
         </div>
+        <!-- 轨迹合并/分割 右键菜单 -->
+        <a-dropdown
+            :visible="menu.visible"
+            :trigger="[]"
+            @visibleChange="(v: boolean) => (menu.visible = v)"
+        >
+            <span
+                :style="{
+                    position: 'fixed',
+                    left: menu.x + 'px',
+                    top: menu.y + 'px',
+                    width: '0px',
+                    height: '0px',
+                }"
+            ></span>
+            <template #overlay>
+                <a-menu @click="onMenuClick">
+                    <a-menu-item key="setBase">
+                        {{ editor.lang('menuSetMergeBase') }}
+                    </a-menu-item>
+                    <a-menu-item key="merge" :disabled="mergeDisabled">
+                        <a-tooltip
+                            v-if="mergeDisabled"
+                            placement="right"
+                            :title="mergeDisabledHint"
+                        >
+                            <span>{{ editor.lang('menuMergeIntoBase') }}</span>
+                        </a-tooltip>
+                        <span v-else>{{ editor.lang('menuMergeIntoBase') }}</span>
+                    </a-menu-item>
+                    <a-menu-item key="split">
+                        {{ editor.lang('menuSplitHere') }}
+                    </a-menu-item>
+                </a-menu>
+            </template>
+        </a-dropdown>
     </div>
 </template>
 <script lang="ts" setup>
     import { IUserData, utils } from 'pc-editor';
-    import { CSSProperties, reactive } from 'vue';
+    import { CSSProperties, reactive, computed } from 'vue';
     import { useInjectEditor } from '../../state';
     // import { IValidity } from 'pc-editor';
 
     import { IMsgOption } from './useTimeLine';
+    import { useTrackMergeBase } from './useTrackMergeBase';
+    const { mergeBaseTrackId } = useTrackMergeBase();
     const { empty } = utils;
     const editor = useInjectEditor();
 
@@ -82,6 +120,26 @@
         msgVisible: false,
         menuIndex: -1,
     });
+    // 右键菜单状态：右键命中的轨迹 / 帧索引 / 光标位置
+    // 合并基准 (mergeBaseTrackId) 存在模块级响应式单例中，跨选择变更和重渲染保持
+    const menu = reactive({
+        visible: false,
+        x: 0,
+        y: 0,
+        trackId: '' as string,
+        frameIndex: -1,
+        classType: '' as string,
+        classId: '' as string,
+    });
+    // 计算合并项是否禁用及提示文案
+    const mergeDisabled = computed(
+        () => !mergeBaseTrackId.value || mergeBaseTrackId.value === menu.trackId,
+    );
+    const mergeDisabledHint = computed(() =>
+        !mergeBaseTrackId.value
+            ? editor.lang('mergeNoBaseHint')
+            : editor.lang('mergeSameTrackHint'),
+    );
     const isError = (index: number) => {
         return (props.errIndex || []).indexOf(index) !== -1;
     };
@@ -256,19 +314,91 @@
     //   }
 
     function onContextMenu(event: MouseEvent) {
+        // 仅在连续帧(序列)数据下启用轨迹合并/分割菜单
+        if (!editor.state.isSeriesFrame || props.msgEvent === false) {
+            return;
+        }
         const frameIndex = getFrameIndexByEvent(event);
         const userData: IUserData = props.trackList[frameIndex - 1];
-        if (props.msgEvent === false || !userData) {
+        if (!userData || !userData.trackId) {
             return;
         }
         iState.msgStatus = IMsgStatus.Menu;
         iState.menuIndex = frameIndex - 1;
-        // showMenu(event, visible, {
-        //     invisible: !!userData.invisibleFlag,
-        // }).then((data) => {
-        //     emit('setInvisibleFlag', frameIndex - 1, data.checked);
-        //     reset();
-        // });
+
+        menu.trackId = userData.trackId;
+        menu.frameIndex = frameIndex - 1;
+        menu.classType = userData.classType || '';
+        menu.classId = userData.classId || '';
+        menu.x = event.clientX;
+        menu.y = event.clientY;
+        menu.visible = true;
+    }
+
+    function onMenuClick({ key }: { key: string }) {
+        menu.visible = false;
+        if (key === 'setBase') {
+            onSetMergeBase();
+        } else if (key === 'merge') {
+            onMerge();
+        } else if (key === 'split') {
+            onSplit();
+        }
+    }
+
+    // 设置合并基准：将右键轨迹 trackId 存入响应式单例
+    function onSetMergeBase() {
+        mergeBaseTrackId.value = menu.trackId;
+        editor.showMsg('success', editor.lang('successSetMergeBase'));
+    }
+
+    // 合并：当前右键轨迹并入基准轨迹，基准 id/name 保留
+    function onMerge() {
+        const trackId = menu.trackId;
+        const baseTrackId = mergeBaseTrackId.value;
+        if (!trackId || !baseTrackId || trackId === baseTrackId) return;
+
+        const { code } = editor.trackManager.canMerge(trackId, baseTrackId);
+        if (code !== 'ok') {
+            const reason =
+                code === 'object_repeat'
+                    ? editor.lang('warnObjectRepeat')
+                    : editor.lang('warnClassTypeDiff');
+            editor.showMsg('warning', reason);
+            return;
+        }
+        try {
+            editor.trackManager.mergeTrackObject(trackId, baseTrackId);
+            mergeBaseTrackId.value = '';
+            editor.showMsg('success', editor.lang('successMerge'));
+        } catch (error) {
+            editor.showMsg('error', editor.lang('errorMerge'));
+        }
+    }
+
+    // 分割：从右键帧起为新轨迹，之前帧保持原 id
+    function onSplit() {
+        const trackId = menu.trackId;
+        const start = menu.frameIndex;
+        if (!trackId || start < 0) return;
+
+        if (!editor.trackManager.canSplit(trackId, start)) {
+            editor.showMsg('warning', editor.lang('warnEmptyObject'));
+            return;
+        }
+        try {
+            editor.trackManager.splitTrackObject({
+                trackId,
+                start,
+                userData: {
+                    classType: menu.classType,
+                    classId: menu.classId,
+                },
+            });
+            editor.showMsg('success', editor.lang('successSplit'));
+        } catch (error) {
+            editor.showMsg('error', editor.lang('errorSplit'));
+        }
     }
 </script>
 <style lang="less">

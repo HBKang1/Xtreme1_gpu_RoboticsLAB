@@ -72,6 +72,20 @@ const en = {
     trackConnectRangeAll: 'Whole sequence',
     trackConnectRangeCurrent: 'From current frame',
     trackConnectK: 'Miss tolerance (K)',
+    // track merge / split context menu
+    menuSetMergeBase: 'Set as merge base',
+    menuMergeIntoBase: 'Merge into base',
+    menuSplitHere: 'Split here',
+    successSetMergeBase: 'Merge base set',
+    mergeNoBaseHint: 'Right-click another track first and choose "Set as merge base"',
+    mergeSameTrackHint: 'This track is already the merge base',
+    successMerge: 'Tracks merged',
+    successSplit: 'Track split',
+    errorMerge: 'Merge failed. Please try again',
+    errorSplit: 'Split failed. Please try again',
+    warnObjectRepeat: 'Cannot merge: both tracks have a box in the same frame',
+    warnClassTypeDiff: 'Cannot merge: the two tracks have different classes',
+    warnEmptyObject: 'Nothing to split at this frame',
 };
 
 export type ILocale = typeof en;

@@ -140,9 +140,19 @@ services:
       - ./deploy/point-cloud-detection/predictor.py:/app/pcdet_open/src/predictor.py:ro
       - ./cbgs_transfusion_lidar.pth:/app/cbgs_transfusion_lidar.pth:ro
       - ./cbgs_voxel0075_voxelnext.pth:/app/cbgs_voxel0075_voxelnext.pth:ro
+      # 파인튜닝(zenix CenterPoint, 단일 카메라 FOV ±50°, intensity raw/255) ckpt + cfg
+      - ./centerpoint_zenix_ft.pth:/app/centerpoint_zenix_ft.pth:ro
+      - ./training/cfgs/centerpoint_zenix.yaml:/app/pcdet_open/cfgs/zenix_models/centerpoint_zenix.yaml:ro
+      - ./training/cfgs/zenix_dataset.yaml:/app/pcdet_open/cfgs/dataset_configs/zenix_dataset.yaml:ro
+      - ./voxelnext_zenix_ft.pth:/app/voxelnext_zenix_ft.pth:ro
+      - ./training/cfgs/voxelnext_zenix.yaml:/app/pcdet_open/cfgs/zenix_models/voxelnext_zenix.yaml:ro
+    # train/serve intensity 일치: 변환기 raw/255 고정 스케일과 동일하게 서빙도 적용
+    environment:
+      - INTENSITY_NORM=fixed255
     # 모델 변경: --model centerpoint (이미지 내장 ckpt, 마운트 불필요) | transfusion | voxelnext
     # 커스텀(파인튜닝) 모델: --cfg <yaml> --ckpt <pth> 로 직접 지정
-    entrypoint: ["python", "app.py", "--model", "voxelnext"]
+    # 롤백: 아래 entrypoint를 ["python","app.py","--model","voxelnext"]로 되돌리고 environment 제거
+    entrypoint: ["python", "app.py", "--cfg", "cfgs/zenix_models/voxelnext_zenix.yaml", "--ckpt", "/app/voxelnext_zenix_ft.pth"]
 volumes:
   mysql-data:
   redis-data:

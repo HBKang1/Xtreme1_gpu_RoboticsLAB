@@ -8,23 +8,31 @@ Input
                 result/<name>.json  -> [{sourceName, objects:[{type:"3D_BOX",
                                          className, contour:{center3D,size3D,rotation3D}}]}]
               (scene exports nest the same data/ + result/ pairs one level deeper)
-  --pcd-root  Directory searched recursively for the source .pcd files.
+  --pcd-root  One or more directories searched recursively for the source .pcd
+              files (duplicate basenames across roots abort the run).
 
 Output (OpenPCDet custom dataset, see docs/CUSTOM_DATASET_TUTORIAL.md)
-  <out>/points/<frame>.npy   float32 [N,4] = x,y,z,intensity (0 when pcd has none)
+  <out>/points/<frame>.npy   float32 [N,4] = x,y,z,intensity (0 when pcd has none).
+                             intensity follows the serving pipeline: raw>2 filter
+                             then raw/255 into [0,1] (deploy app.py:60-66).
   <out>/labels/<frame>.txt   "x y z dx dy dz heading category" per object
   <out>/ImageSets/{train,val}.txt
+
+  Optional --fov-sector <fov_sector.json> (from analyze_fov.py) crops points to
+  the front sector and asserts every GT box center lies inside it.
 
 Usage
   python3 convert_xtreme1_to_openpcdet.py \
       --export ~/Downloads/zenix-export.zip \
       --pcd-root /home/a/dataset_custom/zenix_dataset/dataset_0124 \
+                 /home/a/dataset_custom/zenix_dataset/dataset_0224 \
+      --fov-sector training/fov_sector.json \
       --output ./data/zenix
 """
 import argparse
 import json
+import math
 import re
-import struct
 import sys
 import zipfile
 import random
@@ -39,9 +47,37 @@ PCD_TYPE_MAP = {('F', 4): 'f4', ('F', 8): 'f8',
                 ('U', 1): 'u1', ('U', 2): 'u2', ('U', 4): 'u4'}
 
 
-def read_pcd(path: Path) -> np.ndarray:
-    """Return float32 [N,4] (x,y,z,intensity). Supports ascii/binary pcd."""
+def read_pcd(path: Path):
+    """Return (float32 [N,4] x,y,z,intensity, has_intensity) from a disk pcd."""
     with open(path, 'rb') as f:
+        return _parse_pcd_stream(f, str(path))
+
+
+def read_pcd_url(url: str):
+    """Same as read_pcd but fetches the pcd bytes from a MinIO presigned URL.
+
+    Used for datasets whose disk pcd names don't match the Xtreme1 export names
+    (e.g. Day datasets renamed by a2z); the export's url points at the exact pcd
+    that was annotated, so GT alignment is guaranteed. urllib (not requests)
+    keeps the presigned sigv4 query intact, like download_zip.
+    """
+    import io
+    import urllib.request
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=120) as resp:
+        return _parse_pcd_stream(io.BytesIO(resp.read()), url[:80])
+
+
+def _parse_pcd_stream(f, label: str):
+    """Return (float32 [N,4] x,y,z,intensity, has_intensity: bool).
+
+    intensity is returned RAW (no normalization); the main loop applies the
+    serving-equivalent pipeline (raw>2 filter, then raw/255). pcds without an
+    intensity field load with the column filled with zeros and has_intensity
+    False so the loop can mirror serving's "filter only when the cloud has an
+    intensity column" guard (deploy app.py:62 `pc.shape[1] >= 4`).
+    """
+    if True:
+        path = label
         header = {}
         while True:
             line = f.readline().decode('ascii', errors='ignore').strip()
@@ -80,13 +116,10 @@ def read_pcd(path: Path) -> np.ndarray:
     out = np.zeros((n_points, 4), dtype=np.float32)
     for i, axis in enumerate(('x', 'y', 'z')):
         out[:, i] = raw[axis].astype(np.float32)
-    if 'intensity' in raw.dtype.names:
-        inten = raw['intensity'].astype(np.float32)
-        lo, hi = float(inten.min(initial=0.0)), float(inten.max(initial=0.0))
-        if hi > 1.0:  # normalize to [0,1] like the serving wrapper does
-            inten = (inten - lo) / max(hi - lo, 1e-6)
-        out[:, 3] = inten
-    return out
+    has_intensity = 'intensity' in raw.dtype.names
+    if has_intensity:
+        out[:, 3] = raw['intensity'].astype(np.float32)  # raw; filter/scale later
+    return out, has_intensity
 
 
 def load_export(export: Path, workdir: Path) -> Path:
@@ -104,30 +137,118 @@ def sanitize(name: str) -> str:
     return re.sub(r'[^0-9A-Za-z_.-]+', '_', name)
 
 
+def azimuth_in_sector(az: float, sector: dict) -> bool:
+    """True when scalar azimuth (deg, (-180,180]) falls inside the FOV sector."""
+    lo = sector['azimuth_min_deg']
+    hi = sector['azimuth_max_deg']
+    if sector.get('wraps'):
+        return az >= lo or az <= hi
+    return lo <= az <= hi
+
+
+def crop_to_fov(pts: np.ndarray, sector: dict) -> np.ndarray:
+    """Keep only points whose azimuth (deg, (-180,180]) is inside the sector.
+
+    az = degrees(arctan2(y, x)).  wraps=False keeps [min,max]; wraps=True keeps
+    az>=min OR az<=max.  range_xy_m (when non-null) adds a horizontal-distance
+    cap.  Mirrors training/analyze_fov.py's azimuth convention.
+    """
+    if pts.shape[0] == 0:
+        return pts
+    az = np.degrees(np.arctan2(pts[:, 1], pts[:, 0]))  # (-180, 180]
+    lo = sector['azimuth_min_deg']
+    hi = sector['azimuth_max_deg']
+    if sector.get('wraps'):
+        keep = (az >= lo) | (az <= hi)
+    else:
+        keep = (az >= lo) & (az <= hi)
+    range_xy = sector.get('range_xy_m')
+    if range_xy is not None:
+        r_xy = np.hypot(pts[:, 0], pts[:, 1])
+        keep &= r_xy <= float(range_xy)
+    return pts[keep]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--export', required=True, type=Path)
-    ap.add_argument('--pcd-root', required=True, type=Path)
+    ap.add_argument('--pcd-root', type=Path, nargs='+', default=None,
+                    help='one or more directories searched recursively for .pcd '
+                         '(duplicate basenames across roots are a fatal error). '
+                         'Required unless --from-url.')
+    ap.add_argument('--from-url', action='store_true',
+                    help='fetch each frame pcd from its Xtreme1 export url (MinIO) '
+                         'instead of disk; use for datasets whose disk pcd names '
+                         'do not match the export (e.g. a2z-renamed Day datasets)')
+    ap.add_argument('--pcd-include-dir', nargs='*', default=['lidar_point_cloud_0'],
+                    help='only index .pcd whose immediate parent dir name is in '
+                         'this list (default lidar_point_cloud_0 — the Hesai 64ch '
+                         'that Xtreme1/serving uses; avoids point_cloud_16 name '
+                         'collisions). Pass with no value to index every sensor.')
+    ap.add_argument('--pcd-exclude', nargs='*', default=['_old'],
+                    help='skip any .pcd whose path contains one of these substrings '
+                         '(default _old — stale recording copies on the NAS)')
     ap.add_argument('--output', required=True, type=Path)
-    ap.add_argument('--source', default='GROUND_TRUTH',
-                    help='result sourceName to use (default GROUND_TRUTH)')
+    ap.add_argument('--source', default='Ground Truth',
+                    help='result sourceName to use (default "Ground Truth" — the '
+                         'GROUND_TRUTH_NAME the Xtreme1 export writes)')
     ap.add_argument('--class-map', type=Path, default=None,
                     help='optional JSON {"exported className": "TrainingClass"}')
+    ap.add_argument('--fov-sector', type=Path, default=None,
+                    help='optional fov_sector.json from analyze_fov.py: crop '
+                         'points to the sector and assert all GT lies inside')
+    ap.add_argument('--frame-prefix', default='',
+                    help='prefix prepended to every frame_id; use a unique value '
+                         'per dataset when merging several into one --output to '
+                         'avoid cross-dataset frame_id collisions')
     ap.add_argument('--val-ratio', type=float, default=0.1)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--keep-empty', action='store_true',
                     help='also emit frames whose GT has zero objects')
+    ap.add_argument('--allow-missing-pcd', action='store_true',
+                    help='warn instead of failing when some results have no pcd')
+    ap.add_argument('--expected-frames', type=Path, default=None,
+                    help='optional JSON: int or {"<key>": int} expected frame '
+                         'count; mismatch fails the conversion')
     args = ap.parse_args()
 
     class_map = json.loads(args.class_map.read_text()) if args.class_map else {}
 
+    sector = json.loads(args.fov_sector.read_text()) if args.fov_sector else None
+    if sector is not None:
+        print(f'FOV sector [{sector["azimuth_min_deg"]}, '
+              f'{sector["azimuth_max_deg"]}] wraps={sector.get("wraps")} '
+              f'range_xy_m={sector.get("range_xy_m")}')
+
     pcd_index = {}
-    for p in args.pcd_root.rglob('*.pcd'):
-        pcd_index.setdefault(p.name, p)
-    if not pcd_index:
-        sys.exit(f'no .pcd files under {args.pcd_root}')
-    print(f'indexed {len(pcd_index)} pcd files under {args.pcd_root}')
+    if not args.from_url:
+        if not args.pcd_root:
+            sys.exit('--pcd-root is required unless --from-url is given')
+        include_dirs = set(args.pcd_include_dir or [])
+        exclude_subs = args.pcd_exclude or []
+        for root in args.pcd_root:
+            n_root = 0
+            for p in root.rglob('*.pcd'):
+                if include_dirs and p.parent.name not in include_dirs:
+                    continue
+                if any(sub in str(p) for sub in exclude_subs):
+                    continue
+                prev = pcd_index.get(p.name)
+                if prev is not None:
+                    sys.exit(f'duplicate pcd basename {p.name}:\n  {prev}\n  {p}\n'
+                             f'(ambiguous reference — narrow --pcd-include-dir/--pcd-exclude '
+                             f'or split the inputs)')
+                pcd_index[p.name] = p
+                n_root += 1
+            print(f'  indexed {n_root} pcd files under {root}'
+                  f'{f" (dirs={sorted(include_dirs)})" if include_dirs else ""}')
+        if not pcd_index:
+            sys.exit(f'no .pcd files under {args.pcd_root} '
+                     f'(include_dirs={sorted(include_dirs)}, exclude={exclude_subs})')
+        print(f'indexed {len(pcd_index)} pcd files total')
+    else:
+        print('--from-url: fetching pcds from MinIO export urls (no disk index)')
 
     points_dir = args.output / 'points'
     labels_dir = args.output / 'labels'
@@ -176,34 +297,79 @@ def main():
                 except (KeyError, TypeError, ValueError):
                     skipped['malformed contour'] += 1
                     continue
+                if sector is not None:
+                    box_az = math.degrees(math.atan2(row[1], row[0]))
+                    if not azimuth_in_sector(box_az, sector):
+                        # the box centre is outside the crop sector, so its points
+                        # are being removed — drop the (now point-less) label rather
+                        # than keep a degenerate sample. These are the <0.1% outliers
+                        # the analyze_fov percentile intentionally excluded.
+                        skipped['gt box outside fov'] += 1
+                        continue
                 objects.append((row, cls))
                 class_hist[cls] += 1
             if not objects and not args.keep_empty:
                 skipped['frame with empty GT'] += 1
                 continue
 
-            # resolve the source pcd: data json filename first, then <name>.pcd
-            pcd_path = None
+            # resolve the source pcd from the data json (filename for disk, url for MinIO)
+            cloud = None
             if data_json.exists():
                 try:
                     info = json.loads(data_json.read_text())
                     clouds = info.get('lidarPointClouds') or []
-                    if clouds and clouds[0].get('filename'):
-                        pcd_path = pcd_index.get(Path(clouds[0]['filename']).name)
+                    cloud = clouds[0] if clouds else None
                 except json.JSONDecodeError:
                     pass
-            if pcd_path is None:
-                pcd_path = pcd_index.get(f'{name}.pcd')
-            if pcd_path is None:
-                skipped['pcd not found'] += 1
-                continue
+            pcd_path = pcd_url = None
+            if args.from_url:
+                # MinIO source: the export url points at the exact annotated pcd,
+                # sidestepping disk name mismatches (e.g. a2z-renamed Day datasets).
+                pcd_url = cloud.get('url') if cloud else None
+                if not pcd_url:
+                    skipped['pcd url not found'] += 1
+                    continue
+            else:
+                if cloud and cloud.get('filename'):
+                    pcd_path = pcd_index.get(Path(cloud['filename']).name)
+                if pcd_path is None:
+                    pcd_path = pcd_index.get(f'{name}.pcd')
+                if pcd_path is None:
+                    skipped['pcd not found'] += 1
+                    continue
 
-            frame_id = sanitize(name)
+            frame_id = args.frame_prefix + sanitize(name)
+            # merge-safety: a frame_id colliding across datasets (same --output)
+            # would silently overwrite a prior dataset's npy/labels. Refuse it;
+            # use --frame-prefix to namespace per-dataset runs.
+            if (points_dir / f'{frame_id}.npy').exists():
+                sys.exit(f'frame_id {frame_id!r} already exists in {points_dir} — '
+                         f'cross-dataset collision; rerun this dataset with a unique '
+                         f'--frame-prefix (or clear --output for a fresh build)')
             try:
-                pts = read_pcd(pcd_path)
+                pts, has_intensity = (read_pcd_url(pcd_url) if args.from_url
+                                      else read_pcd(pcd_path))
             except ValueError as e:
                 print(f'  ! {e}', file=sys.stderr)
                 skipped['pcd parse error'] += 1
+                continue
+            except Exception as e:  # noqa: BLE001 — url fetch (HTTP/URL errors)
+                print(f'  ! fetch {pcd_url}: {e}', file=sys.stderr)
+                skipped['pcd fetch error'] += 1
+                continue
+            # crop to FOV sector before intensity processing / save
+            if sector is not None:
+                pts = crop_to_fov(pts, sector)
+            # serving-equivalent intensity pipeline (deploy app.py:62-66):
+            # filter raw>2 (snow noise) whenever the cloud has an intensity column
+            # (mirrors serving's `pc.shape[1] >= 4` guard), then raw/255 into [0,1].
+            if has_intensity and pts.shape[0]:
+                pts = pts[pts[:, 3] > 2]
+            pts[:, 3] = np.clip(pts[:, 3] / 255.0, 0.0, 1.0)
+            # drop degenerate frames: a labelled frame with no points after
+            # crop/filter is a "boxes but no cloud" sample that hurts training.
+            if pts.shape[0] == 0:
+                skipped['empty after crop/filter'] += 1
                 continue
             np.save(points_dir / f'{frame_id}.npy', pts)
             with open(labels_dir / f'{frame_id}.txt', 'w') as f:
@@ -213,6 +379,24 @@ def main():
 
     if not frames:
         sys.exit('no frames converted — check --export / --pcd-root / --source')
+
+    # hard gate: missing/unfetchable pcds are silent data loss unless allowed
+    n_missing = (skipped.get('pcd not found', 0) + skipped.get('pcd url not found', 0)
+                 + skipped.get('pcd fetch error', 0))
+    if n_missing:
+        msg = f'{n_missing} result(s) had no usable pcd (missing/unfetchable)'
+        if args.allow_missing_pcd:
+            print(f'WARNING: {msg} (continuing: --allow-missing-pcd)', file=sys.stderr)
+        else:
+            sys.exit(f'{msg} — aborting to avoid silent data loss '
+                     f'(pass --allow-missing-pcd to continue)')
+
+    # hard gate: converted frame count must match the expected count when given
+    if args.expected_frames is not None:
+        spec = json.loads(args.expected_frames.read_text())
+        expected = spec if isinstance(spec, int) else sum(spec.values())
+        if len(frames) != expected:
+            sys.exit(f'expected {expected} frames, converted {len(frames)}')
 
     random.Random(args.seed).shuffle(frames)
     n_val = max(1, int(len(frames) * args.val_ratio))

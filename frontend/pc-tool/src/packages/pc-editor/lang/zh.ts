@@ -18,6 +18,8 @@ const zh: ILocale = {
     'track-error': '追踪错误',
     'track-no-source': '无追踪对象',
     'track-ok': '追踪成功',
+    'track-connect-ok': '轨迹连接：已重新标记 {{n}} 个框',
+    'track-connect-none': '无可连接的单帧框',
     'copy-ok': '复制成功',
 
     // info
@@ -64,6 +66,12 @@ const zh: ILocale = {
     trackKeepZ: '保持种子高度(z)',
     trackKeepRot: '保持种子朝向',
     'track-partial': '{{n}}/{{m}} 帧追踪成功',
+    trackConnect: '轨迹连接 (重新标记单帧框)',
+    trackConnectScopeAll: '全部框',
+    trackConnectScopeModel: '仅模型框',
+    trackConnectRangeAll: '整个序列',
+    trackConnectRangeCurrent: '从当前帧开始',
+    trackConnectK: '丢失容忍 (K)',
 };
 
 export { zh };

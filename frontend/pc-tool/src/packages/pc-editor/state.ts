@@ -174,5 +174,9 @@ function getDefaultConfig(): IConfig {
         trackFrameN: 1,
         trackKeepZ: true,
         trackKeepRotation: true,
+        trackAssocK: 5,
+        trackAssocGate: 2.0,
+        trackAssocInputScope: 'all',
+        trackAssocRange: 'all',
     };
 }

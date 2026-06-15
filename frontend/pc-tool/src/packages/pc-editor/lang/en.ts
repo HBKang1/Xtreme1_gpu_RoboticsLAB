@@ -17,6 +17,8 @@ const en = {
     'track-no-source': 'No Tracking Objects',
     'track-error': 'Track Error',
     'track-ok': 'Track Success',
+    'track-connect-ok': 'Track Connect: {{n}} boxes relabeled',
+    'track-connect-none': 'No dangling boxes to connect',
     'copy-ok': 'Copy Success',
 
     // info
@@ -64,6 +66,12 @@ const en = {
     trackKeepZ: 'Keep seed height (z)',
     trackKeepRot: 'Keep seed heading',
     'track-partial': '{{n}}/{{m}} frames tracked',
+    trackConnect: 'Track Connect (relabel single-frame boxes)',
+    trackConnectScopeAll: 'All boxes',
+    trackConnectScopeModel: 'Model boxes only',
+    trackConnectRangeAll: 'Whole sequence',
+    trackConnectRangeCurrent: 'From current frame',
+    trackConnectK: 'Miss tolerance (K)',
 };
 
 export type ILocale = typeof en;

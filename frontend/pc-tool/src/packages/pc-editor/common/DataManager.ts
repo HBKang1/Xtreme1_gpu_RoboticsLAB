@@ -4,7 +4,7 @@ import Editor from '../Editor';
 import { Event as EditorEvent } from 'pc-editor';
 // import * as api from '../api';
 import * as utils from '../utils';
-import { Const, ICmdName, IFilter, IUserData } from '../type';
+import { Const, ICmdName, IFilter, IUserData, SourceType } from '../type';
 import Event from '../config/event';
 import * as THREE from 'three';
 
@@ -469,6 +469,213 @@ export default class DataManager {
         } finally {
             editor.showLoading(false);
         }
+    }
+    // offline relabel-only track association: over already-detected boxes,
+    // reassign trackId/trackName so the same physical object keeps a consistent
+    // id across frames. NEVER create/delete/move/resize boxes — only relabel.
+    // - inputScope: 'all' (every box) | 'model' (sourceType === MODEL only)
+    // - range: 'all' (whole sequence) | 'fromCurrent' (current frame -> end)
+    // Multi-frame tracks (a trackId present in >=2 frames of the scanned range)
+    // are anchors and never touched; association acts only on "dangling" boxes
+    // (trackId present in exactly 1 frame of the range). Matching is greedy 1:1
+    // per frame by BEV (x,y) center distance within a growing gate, same
+    // classType only; size/heading are not used. Constant-velocity prediction
+    // feeds the gate cost only (no fallback boxes are synthesized).
+    trackConnect(option?: {
+        inputScope?: 'all' | 'model';
+        range?: 'all' | 'fromCurrent';
+        k?: number;
+    }) {
+        let editor = this.editor;
+        if (!editor.state.isSeriesFrame) return;
+
+        let { frameIndex, frames, config } = editor.state;
+        let inputScope = option?.inputScope ?? config.trackAssocInputScope ?? 'all';
+        let range = option?.range ?? config.trackAssocRange ?? 'all';
+        let K = Math.max(0, Math.round(option?.k ?? config.trackAssocK ?? 5));
+        let baseGate = config.trackAssocGate ?? 2.0;
+        // mirror app.py TRACK gate growth/ceiling: gate widens 50% per miss, capped at 4m
+        const GATE_GROWTH = 0.5;
+        const gateMax = Math.max(baseGate, 4.0);
+        const gateFor = (miss: number) => Math.min(baseGate * (1 + GATE_GROWTH * miss), gateMax);
+
+        let startIndex = range === 'fromCurrent' ? frameIndex : 0;
+        let rangeFrames = frames.slice(startIndex);
+        if (rangeFrames.length === 0) return;
+
+        const isModel = (obj: Box) =>
+            (obj.userData as IUserData).sourceType === SourceType.MODEL;
+        const inScope = (obj: Box) => (inputScope === 'model' ? isModel(obj) : true);
+
+        // per-frame box lists (only 3D boxes, visible) within the scanned range
+        let frameBoxes: Box[][] = rangeFrames.map((frame) => {
+            let objects = this.getFrameObject(frame.id) || [];
+            return objects.filter(
+                (e) => e instanceof Box && !e.userData.invisibleFlag,
+            ) as Box[];
+        });
+
+        // trackId -> count of frames it appears in (within the scanned range).
+        // >=2 frames => multi-frame anchor (preserve). ==1 => dangling candidate.
+        let trackFrameCount: Record<string, number> = {};
+        frameBoxes.forEach((boxes) => {
+            let seen: Record<string, boolean> = {};
+            boxes.forEach((box) => {
+                let trackId = (box.userData as IUserData).trackId;
+                if (!trackId || seen[trackId]) return;
+                seen[trackId] = true;
+                trackFrameCount[trackId] = (trackFrameCount[trackId] || 0) + 1;
+            });
+        });
+
+        const isDangling = (box: Box) => {
+            let trackId = (box.userData as IUserData).trackId;
+            return (
+                !!trackId &&
+                trackFrameCount[trackId] === 1 &&
+                inScope(box)
+            );
+        };
+
+        interface IActiveTrack {
+            trackId: string;
+            trackName: string;
+            classType: string;
+            lastPos: THREE.Vector2; // last matched center (x,y)
+            vel: THREE.Vector2; // constant-velocity estimate
+            miss: number; // consecutive unmatched frames
+            dead: boolean; // deactivated after >K consecutive misses
+        }
+
+        let activeTracks: IActiveTrack[] = [];
+        // relabels: object -> { trackId, trackName } to apply (only where changed)
+        let relabelObjects: AnnotateObject[] = [];
+        let relabelData: IUserData[] = [];
+        const queueRelabel = (box: Box, trackId: string, trackName: string) => {
+            let userData = box.userData as IUserData;
+            if (userData.trackId === trackId && userData.trackName === trackName) return;
+            relabelObjects.push(box);
+            relabelData.push({ trackId, trackName });
+        };
+
+        rangeFrames.forEach((frame, fi) => {
+            let dangling = frameBoxes[fi].filter(isDangling);
+
+            // advance every active track's prediction once per frame
+            let predicted = activeTracks.map((t) =>
+                t.lastPos.clone().add(t.vel),
+            );
+
+            if (dangling.length > 0 && activeTracks.length > 0) {
+                // greedy 1:1 by BEV distance, same classType, within growing gate
+                interface IPair {
+                    dist: number;
+                    ti: number; // active track index
+                    di: number; // dangling box index
+                }
+                let pairs: IPair[] = [];
+                activeTracks.forEach((track, ti) => {
+                    let gate = gateFor(track.miss);
+                    let pred = predicted[ti];
+                    dangling.forEach((box, di) => {
+                        if ((box.userData as IUserData).classType !== track.classType)
+                            return;
+                        let dist = Math.hypot(
+                            pred.x - box.position.x,
+                            pred.y - box.position.y,
+                        );
+                        if (dist <= gate) pairs.push({ dist, ti, di });
+                    });
+                });
+                pairs.sort((a, b) => a.dist - b.dist);
+
+                let usedTrack: Record<number, boolean> = {};
+                let usedBox: Record<number, boolean> = {};
+                pairs.forEach(({ ti, di }) => {
+                    if (usedTrack[ti] || usedBox[di]) return;
+                    usedTrack[ti] = true;
+                    usedBox[di] = true;
+                    let track = activeTracks[ti];
+                    let box = dangling[di];
+                    queueRelabel(box, track.trackId, track.trackName);
+                    let newPos = new THREE.Vector2(box.position.x, box.position.y);
+                    track.vel = newPos.clone().sub(track.lastPos);
+                    track.lastPos = newPos;
+                    track.miss = 0;
+                });
+
+                // unmatched active tracks accrue a miss; deactivate after >K misses
+                activeTracks.forEach((track, ti) => {
+                    if (usedTrack[ti]) return;
+                    track.miss += 1;
+                    track.lastPos = predicted[ti];
+                    if (track.miss > K) track.dead = true;
+                });
+
+                // unmatched dangling boxes seed new tracks (own existing id)
+                dangling.forEach((box, di) => {
+                    if (usedBox[di]) return;
+                    let userData = box.userData as IUserData;
+                    activeTracks.push({
+                        trackId: userData.trackId || '',
+                        trackName: userData.trackName || '',
+                        classType: userData.classType || '',
+                        lastPos: new THREE.Vector2(box.position.x, box.position.y),
+                        vel: new THREE.Vector2(0, 0),
+                        miss: 0,
+                        dead: false,
+                    });
+                });
+            } else {
+                // no matching possible this frame: age active tracks, seed any dangling
+                activeTracks.forEach((track, ti) => {
+                    track.miss += 1;
+                    track.lastPos = predicted[ti];
+                    if (track.miss > K) track.dead = true;
+                });
+                dangling.forEach((box) => {
+                    let userData = box.userData as IUserData;
+                    activeTracks.push({
+                        trackId: userData.trackId || '',
+                        trackName: userData.trackName || '',
+                        classType: userData.classType || '',
+                        lastPos: new THREE.Vector2(box.position.x, box.position.y),
+                        vel: new THREE.Vector2(0, 0),
+                        miss: 0,
+                        dead: false,
+                    });
+                });
+            }
+
+            activeTracks = activeTracks.filter((t) => !t.dead);
+        });
+
+        if (relabelObjects.length === 0) {
+            editor.showMsg('warning', editor.lang('track-connect-none'));
+            return;
+        }
+
+        // mark every touched frame dirty (setAnnotatesUserData marks the owning
+        // frame, but be explicit for frames whose boxes carry no .frame backref)
+        let touchedFrames = new Set<IFrame>();
+        relabelObjects.forEach((obj) => {
+            let frame = (obj as any).frame as IFrame;
+            if (frame) touchedFrames.add(frame);
+        });
+
+        editor.cmdManager.withGroup(() => {
+            editor.cmdManager.execute('update-object-user-data', {
+                objects: relabelObjects,
+                data: relabelData,
+            });
+        });
+
+        touchedFrames.forEach((frame) => (frame.needSave = true));
+
+        editor.showMsg(
+            'success',
+            editor.lang('track-connect-ok', { n: relabelObjects.length }),
+        );
     }
     copyForward() {
         return this.track({

@@ -242,6 +242,11 @@ export interface IConfig {
     trackFrameN: number;
     trackKeepZ: boolean;
     trackKeepRotation: boolean;
+    // offline relabel-only track association
+    trackAssocK: number;
+    trackAssocGate: number;
+    trackAssocInputScope: 'all' | 'model';
+    trackAssocRange: 'all' | 'fromCurrent';
     //
     // type: string;
     pointSize: number;

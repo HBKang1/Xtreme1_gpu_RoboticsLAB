@@ -247,6 +247,66 @@
                             <template #icon><SettingOutlined /></template>
                         </a-button>
                     </a-popover>
+                    <!-- offline relabel-only track association -->
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('trackConnect') }}</template>
+                        <a-button
+                            :disabled="disable"
+                            @click="() => onAction('TrackConnect')"
+                            style="width: 40px; margin-left: 8px"
+                        >
+                            <template #icon><LinkOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-popover placement="top" trigger="click">
+                        <template #content>
+                            <div
+                                style="
+                                    display: flex;
+                                    flex-direction: column;
+                                    gap: 8px;
+                                    min-width: 180px;
+                                "
+                            >
+                                <a-radio-group
+                                    v-model:value="config.trackAssocInputScope"
+                                    size="small"
+                                >
+                                    <a-radio value="all">
+                                        {{ editor.lang('trackConnectScopeAll') }}
+                                    </a-radio>
+                                    <a-radio value="model">
+                                        {{ editor.lang('trackConnectScopeModel') }}
+                                    </a-radio>
+                                </a-radio-group>
+                                <a-radio-group
+                                    v-model:value="config.trackAssocRange"
+                                    size="small"
+                                >
+                                    <a-radio value="all">
+                                        {{ editor.lang('trackConnectRangeAll') }}
+                                    </a-radio>
+                                    <a-radio value="fromCurrent">
+                                        {{ editor.lang('trackConnectRangeCurrent') }}
+                                    </a-radio>
+                                </a-radio-group>
+                                <div style="display: flex; align-items: center; gap: 6px">
+                                    <span>{{ editor.lang('trackConnectK') }}</span>
+                                    <a-input-number
+                                        style="width: 56px"
+                                        v-model:value="config.trackAssocK"
+                                        :precision="0"
+                                        :min="0"
+                                        :max="50"
+                                        size="small"
+                                    />
+                                </div>
+                            </div>
+                        </template>
+                        <a-button :disabled="disable">
+                            <template #icon><SettingOutlined /></template>
+                        </a-button>
+                    </a-popover>
                 </template>
             </div>
         </div>
@@ -284,6 +344,7 @@
         CopyOutlined,
         AimOutlined,
         SettingOutlined,
+        LinkOutlined,
     } from '@ant-design/icons-vue';
     import { useInjectEditor } from '../../state';
     const props = defineProps<{
@@ -325,6 +386,7 @@
         | 'TrackForward'
         | 'TrackBackward'
         | 'TrackAllForward'
+        | 'TrackConnect'
         | 'AutoLoad'
         | 'Replay'
         | 'PreFrame'
@@ -376,6 +438,9 @@
 
             case 'TrackAllForward':
                 editor.dataManager.trackAllForward();
+                break;
+            case 'TrackConnect':
+                editor.dataManager.trackConnect();
                 break;
             case 'Replay':
                 rePlay();

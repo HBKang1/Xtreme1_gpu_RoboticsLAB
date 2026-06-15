@@ -114,6 +114,20 @@
                     {{ $$('btn-not-annotated') }}
                 </a-button>
                 <a-button
+                    class="basic submit-frame"
+                    v-show="canEdit() && state.isSeriesFrame"
+                    :loading="submittingFrame"
+                    :disabled="blocking"
+                    @click="onSubmitFrame"
+                >
+                    <template #icon><SaveOutlined /></template>
+                    {{
+                        currentFrame.annotationStatus === 'ANNOTATED'
+                            ? $$('btn-update-frame')
+                            : $$('btn-submit-frame')
+                    }}
+                </a-button>
+                <a-button
                     class="basic submit"
                     v-show="canEdit()"
                     :loading="bsState.submitting"
@@ -155,6 +169,7 @@
         blocking,
         currentFrame,
         resetting,
+        submittingFrame,
         dataIndex,
         onIndexChange,
         onHelp,
@@ -166,6 +181,7 @@
         onToggleValid,
         onToggleSkip,
         onSubmit,
+        onSubmitFrame,
         onModify,
         onResetStatus,
     } = useHeader();
@@ -300,6 +316,19 @@
             }
             &.unsubmit {
                 background-color: #c47fd1;
+            }
+            &.submit-frame {
+                background-color: #3a8c7a99;
+                padding-left: 15px !important;
+                .anticon {
+                    background: #3a8c7a;
+                    height: 30px;
+                    margin-top: -4px;
+                    width: 32px;
+                    margin-left: -16px;
+                    border-radius: 16px;
+                    padding-top: 5px;
+                }
             }
             &.submit {
                 background-color: #60a9fe99;

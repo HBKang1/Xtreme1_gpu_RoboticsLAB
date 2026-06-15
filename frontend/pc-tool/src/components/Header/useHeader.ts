@@ -15,6 +15,7 @@ export default function useHeader() {
     let editorState = editor.state;
     let dataIndex = ref(state.frameIndex + 1);
     let resetting = ref(false);
+    let submittingFrame = ref(false);
     let iState = reactive({
         fullScreen: false,
         dataName: '',
@@ -244,6 +245,22 @@ export default function useHeader() {
         }
     }
 
+    async function onSubmitFrame() {
+        let { frameIndex, frames } = editor.state;
+        let frame = frames[frameIndex];
+
+        submittingFrame.value = true;
+        try {
+            await editor.saveObject([frame], true);
+            await api.submitFrameData(frame.id);
+            await updateDataStatus([frame]);
+            editor.showMsg('success', 'Submit Success');
+        } catch (error: any) {
+            editor.handleErr(error, 'Operation Error');
+        }
+        submittingFrame.value = false;
+    }
+
     async function onResetStatus() {
         let { frameIndex, frames, isSeriesFrame } = editor.state;
         const seriesFrameId = editor.bsState.seriesFrameId;
@@ -331,6 +348,7 @@ export default function useHeader() {
         currentFrame,
         blocking,
         resetting,
+        submittingFrame,
         dataIndex,
         onIndexChange,
         onFullScreen,
@@ -343,6 +361,7 @@ export default function useHeader() {
         onToggleValid,
         onToggleSkip,
         onSubmit,
+        onSubmitFrame,
         onModify,
         onResetStatus,
     };

@@ -8,6 +8,8 @@ const en = {
     'btn-skipped': 'Skipped',
     'btn-submit': 'Submit',
     'btn-update': 'Update',
+    'btn-submit-frame': 'Submit Frame',
+    'btn-update-frame': 'Update Frame',
     'btn-not-annotated': 'Mark as Not Annotated',
     'btn-modify': 'Modify',
     'btn-full': 'Full Screen',

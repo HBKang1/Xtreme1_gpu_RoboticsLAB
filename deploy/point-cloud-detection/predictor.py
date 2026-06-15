@@ -1,4 +1,5 @@
 import glob
+import os
 from pathlib import Path
 import numpy as np
 import logging
@@ -34,10 +35,14 @@ class DemoDataset(DatasetTemplate):
         else:
             points = points[:, :4]
 
-        _min, _max = points[:, 3].min(), points[:, 3].max()
-        if _min < 0.0 or _max > 1.0:
-            points[:, 3] = (points[:, 3] - _min) / (_max - _min)
-            logging.debug(f'normalize intensity from ({_min}, {_max}) to (0, 1)')
+        if os.environ.get("INTENSITY_NORM") == "fixed255":
+            points[:, 3] = np.clip(points[:, 3] / 255.0, 0.0, 1.0)
+            logging.debug('normalize intensity: fixed255 scale (raw/255, clipped to [0,1])')
+        else:
+            _min, _max = points[:, 3].min(), points[:, 3].max()
+            if _min < 0.0 or _max > 1.0:
+                points[:, 3] = (points[:, 3] - _min) / (_max - _min)
+                logging.debug(f'normalize intensity from ({_min}, {_max}) to (0, 1)')
         return points
 
     def __len__(self):

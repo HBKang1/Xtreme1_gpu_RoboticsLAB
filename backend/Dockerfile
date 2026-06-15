@@ -4,9 +4,10 @@ WORKDIR /build
 ADD . .
 RUN --mount=type=cache,target=/root/.m2 mvn package
 
-FROM openjdk:11-jre
+# openjdk:11-jre was removed from Docker Hub; eclipse-temurin is the official replacement
+FROM eclipse-temurin:11-jre-jammy
 RUN apt update && \
-    apt install -y iputils-ping curl wget netcat python3 python3-pip git
+    apt install -y iputils-ping curl wget netcat-openbsd python3 python3-pip git
 RUN pip3 install --upgrade --force-reinstall git+https://github.com/xtreme1-io/xtreme1-sdk.git@6b53a73
 WORKDIR /app
 COPY --from=build /build/target/xtreme1-backend-0.9.1-SNAPSHOT.jar ./app.jar

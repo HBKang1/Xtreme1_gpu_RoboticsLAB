@@ -47,6 +47,9 @@ const hotkeyConfig: IHotkeyConfig[] = [
     { key: `alt+right`, action: 'copyForward' },
     { key: `alt+left`, action: 'copyBackWard' },
     { key: `alt+shift+right`, action: 'copyAllForward' },
+    // model tracking (prototype) — mirrors the copy hotkeys
+    { key: `alt+t`, action: 'trackForward' },
+    { key: `alt+shift+t`, action: 'trackAllForward' },
 ];
 
 export default hotkeyConfig;

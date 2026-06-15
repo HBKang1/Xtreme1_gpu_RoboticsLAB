@@ -14,6 +14,8 @@ export default function useHeader() {
     let { state, bsState } = editor;
     let editorState = editor.state;
     let dataIndex = ref(state.frameIndex + 1);
+    let resetting = ref(false);
+    let submittingFrame = ref(false);
     let iState = reactive({
         fullScreen: false,
         dataName: '',
@@ -243,6 +245,50 @@ export default function useHeader() {
         }
     }
 
+    async function onSubmitFrame() {
+        let { frameIndex, frames } = editor.state;
+        let frame = frames[frameIndex];
+
+        submittingFrame.value = true;
+        let ok = false;
+        try {
+            await editor.saveObject([frame], true);
+            await api.submitFrameData(frame.id);
+            await updateDataStatus([frame]);
+            editor.showMsg('success', 'Submit Success');
+            ok = true;
+        } catch (error: any) {
+            editor.handleErr(error, 'Operation Error');
+        }
+        submittingFrame.value = false;
+
+        // advance to the next frame so the annotator can keep moving through the scene
+        if (ok) {
+            if (frameIndex !== frames.length - 1) {
+                editor.loadFrame(frameIndex + 1);
+            } else {
+                editor.showMsg('warning', 'This is the last frame');
+            }
+        }
+    }
+
+    async function onResetStatus() {
+        let { frameIndex, frames } = editor.state;
+        let frame = frames[frameIndex];
+
+        // reset only the current frame (the backend also drops the parent scene to
+        // NOT_ANNOTATED since it is no longer fully annotated)
+        resetting.value = true;
+        try {
+            await api.resetAnnotationStatus([frame.id]);
+            await updateDataStatus([frame]);
+            editor.showMsg('success', 'Reset Success');
+        } catch (error: any) {
+            editor.handleErr(error, 'Operation Error');
+        }
+        resetting.value = false;
+    }
+
     async function updateDataStatus(frames: IFrame[]) {
         let statusMap = await api.getDataStatus(frames.map((e) => e.id));
         frames.forEach((frame) => {
@@ -308,6 +354,8 @@ export default function useHeader() {
         iState,
         currentFrame,
         blocking,
+        resetting,
+        submittingFrame,
         dataIndex,
         onIndexChange,
         onFullScreen,
@@ -320,6 +368,8 @@ export default function useHeader() {
         onToggleValid,
         onToggleSkip,
         onSubmit,
+        onSubmitFrame,
         onModify,
+        onResetStatus,
     };
 }

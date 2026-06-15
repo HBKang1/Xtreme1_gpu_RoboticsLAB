@@ -36,4 +36,12 @@ export default class BusinessManager {
     }> {
         throw 'getFrameObject implement error';
     }
+
+    async runModelTrack(params: {
+        seedObjects: any[];
+        frames: { id: string }[];
+        keep?: { z: boolean; rotation: boolean };
+    }): Promise<any[]> {
+        throw 'runModelTrack implement error';
+    }
 }

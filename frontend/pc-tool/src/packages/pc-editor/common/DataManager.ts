@@ -401,14 +401,75 @@ export default class DataManager {
 
     async pollDataModelResult() {}
 
-    // async runModelTrack(
-    //     curId: string,
-    //     toIds: string[],
-    //     direction: 'BACKWARD' | 'FORWARD',
-    //     targetObjects: any[],
-    //     trackIdName: Record<string, string>,
-    //     onComplete?: () => void,
-    // ) {}
+    // tracking prototype: direct serving call (no backend model-run record, no polling)
+    async runModelTrack(
+        curId: string,
+        toIds: string[],
+        direction: 'BACKWARD' | 'FORWARD',
+        targetObjects: any[],
+        trackIdName: Record<string, string>,
+        onComplete?: () => void,
+    ) {
+        let editor = this.editor;
+        editor.showLoading(true);
+        try {
+            let results = await editor.businessManager.runModelTrack({
+                seedObjects: targetObjects,
+                frames: toIds.map((id) => ({ id })),
+                keep: {
+                    z: editor.state.config.trackKeepZ,
+                    rotation: editor.state.config.trackKeepRotation,
+                },
+            });
+
+            // addModelTrackData resolves a new box's inherited identity from the
+            // CURRENT frame's objects — drop result tracks without a seed there
+            let curTrackIds = new Set<string>();
+            (this.getFrameObject(curId) || []).forEach((e) => {
+                if (e instanceof Box) curTrackIds.add(e.userData.trackId);
+            });
+
+            let objectsMap = {} as Record<string, IObject[]>;
+            (results || []).forEach((frameResult: any) => {
+                if (!frameResult || frameResult.code !== 'OK') return;
+                let objects = (frameResult.objects || [])
+                    .filter((e: any) => {
+                        if (curTrackIds.has(e.trackingId)) return true;
+                        console.warn('track result without current-frame seed:', e.trackingId);
+                        return false;
+                    })
+                    .map((e: any) => {
+                        e.trackId = e.trackingId;
+                        e.trackName = trackIdName[e.trackingId] || '';
+                        e.objType = '3d';
+                        return e as IObject;
+                    });
+                if (objects.length > 0) objectsMap[frameResult.id + ''] = objects;
+            });
+
+            let appliedCount = Object.keys(objectsMap).length;
+            if (appliedCount === 0) {
+                editor.showMsg('error', editor.lang('track-no-data'));
+                return;
+            }
+
+            editor.modelManager.addModelTrackData(objectsMap);
+
+            if (appliedCount < toIds.length) {
+                editor.showMsg(
+                    'warning',
+                    editor.lang('track-partial', { n: appliedCount, m: toIds.length }),
+                );
+            } else {
+                editor.showMsg('success', editor.lang('track-ok'));
+            }
+            onComplete && onComplete();
+        } catch (e: any) {
+            editor.showMsg('error', editor.lang('track-error'));
+        } finally {
+            editor.showLoading(false);
+        }
+    }
     copyForward() {
         return this.track({
             direction: 'FORWARD',
@@ -431,6 +492,30 @@ export default class DataManager {
             object: 'all',
             method: 'copy',
             frameN: 1,
+        });
+    }
+    trackForward() {
+        return this.track({
+            direction: 'FORWARD',
+            object: 'select',
+            method: 'model',
+            frameN: this.editor.state.config.trackFrameN,
+        });
+    }
+    trackBackward() {
+        return this.track({
+            direction: 'BACKWARD',
+            object: 'select',
+            method: 'model',
+            frameN: this.editor.state.config.trackFrameN,
+        });
+    }
+    trackAllForward() {
+        return this.track({
+            direction: 'FORWARD',
+            object: 'all',
+            method: 'model',
+            frameN: this.editor.state.config.trackFrameN,
         });
     }
     async track(option: {
@@ -488,7 +573,7 @@ export default class DataManager {
             editor.showMsg('success', editor.lang('copy-ok'));
             this.gotoNext(ids[0]);
         } else {
-            // await this.modelTrack(ids, objects, option.direction);
+            await this.modelTrack(ids, objects, option.direction);
         }
     }
     gotoNext(dataId: string) {
@@ -499,50 +584,62 @@ export default class DataManager {
         this.editor.loadFrame(index);
         // this.editor.dispatchEvent({ type: EditorEvent.UPDATE_TIME_LINE });
     }
-    // async modelTrack(
-    //     toIds: string[],
-    //     objects: AnnotateObject[],
-    //     direction: 'BACKWARD' | 'FORWARD',
-    // ) {
-    //     let editor = this.editor;
-    //     let { frameIndex, frames } = editor.state;
-    //     let dataInfo = frames[frameIndex];
-    //     let curId = dataInfo.id;
-    //     // let direction = iState.trackDirection === 'backward' ? 'BACKWARD' : 'FORWARD';
-    //     // let dataIds = dataList.slice(1, 10).map((e) => +e.dataId);
+    async modelTrack(
+        toIds: string[],
+        objects: AnnotateObject[],
+        direction: 'BACKWARD' | 'FORWARD',
+    ) {
+        let editor = this.editor;
+        let { frameIndex, frames } = editor.state;
+        let dataInfo = frames[frameIndex];
+        let curId = dataInfo.id;
 
-    //     // Partial<IObject>
-    //     let trackIdName = {} as Record<string, string>;
-    //     let targetObjects = [] as any[];
-    //     objects.forEach((object) => {
-    //         if (object instanceof Box) {
-    //             let userData = object.userData as IUserData;
-    //             let { position, scale, rotation } = object;
-    //             let center3D = new THREE.Vector3().set(position.x, position.y, position.z);
-    //             let rotation3D = new THREE.Vector3().set(rotation.x, rotation.y, rotation.z);
-    //             let size3D = new THREE.Vector3().set(scale.x, scale.y, scale.z);
+        // previous-frame positions of the same tracks give the server an initial
+        // velocity for the constant-velocity fallback (null -> stationary).
+        // "previous" is relative to propagation order: when tracking BACKWARD,
+        // the reference is the next frame in time
+        let prevMap = {} as Record<string, Box>;
+        let prevFrame = frames[frameIndex + (direction === 'BACKWARD' ? 1 : -1)];
+        if (prevFrame) {
+            (this.getFrameObject(prevFrame.id) || []).forEach((e) => {
+                if (e instanceof Box && !e.userData.invisibleFlag) {
+                    prevMap[e.userData.trackId] = e as Box;
+                }
+            });
+        }
 
-    //             if (!userData.trackId) {
-    //                 userData.trackId = editor.createTrackId();
-    //             }
+        let trackIdName = {} as Record<string, string>;
+        let targetObjects = [] as any[];
+        objects.forEach((object) => {
+            if (object instanceof Box) {
+                let userData = object.userData as IUserData;
+                let { position, scale, rotation } = object;
 
-    //             trackIdName[userData.trackId] = userData.trackName || '';
+                if (!userData.trackId) {
+                    userData.trackId = editor.createTrackId();
+                }
 
-    //             targetObjects.push({
-    //                 uuid: object.uuid,
-    //                 trackingId: userData.trackId,
-    //                 objType: '3d',
-    //                 modelClass: userData.modelClass || null,
-    //                 confidence: userData.confidence || null,
-    //                 center3D,
-    //                 rotation3D,
-    //                 size3D,
-    //             });
-    //         }
-    //     });
+                trackIdName[userData.trackId] = userData.trackName || '';
 
-    //     this.runModelTrack(curId, toIds, direction as any, targetObjects, trackIdName, () => {
-    //         this.gotoNext(toIds[0]);
-    //     });
-    // }
+                let prev = prevMap[userData.trackId];
+                targetObjects.push({
+                    uuid: object.uuid,
+                    trackingId: userData.trackId,
+                    objType: '3d',
+                    modelClass: userData.modelClass || null,
+                    confidence: userData.confidence || null,
+                    center3D: { x: position.x, y: position.y, z: position.z },
+                    rotation3D: { x: rotation.x, y: rotation.y, z: rotation.z },
+                    size3D: { x: scale.x, y: scale.y, z: scale.z },
+                    prevCenter3D: prev
+                        ? { x: prev.position.x, y: prev.position.y, z: prev.position.z }
+                        : null,
+                });
+            }
+        });
+
+        await this.runModelTrack(curId, toIds, direction as any, targetObjects, trackIdName, () => {
+            this.gotoNext(toIds[0]);
+        });
+    }
 }

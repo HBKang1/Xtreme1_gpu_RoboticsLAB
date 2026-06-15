@@ -123,6 +123,7 @@ export default {
   },
 
   urlError: 'Please enter a path with a zip type',
+  markNotAnnotated: 'Mark as Not Annotated',
   splitModel: {
     title: 'Split Dataset',
     splitInto: 'Split into',

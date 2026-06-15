@@ -88,6 +88,12 @@ export const actionList: actionItem[] = [
     ],
   },
   {
+    text: t('business.datasetContent.markNotAnnotated'),
+    function: 'handleResetAnnotationStatus',
+    icon: 'ic:baseline-undo',
+    hasDivider: true,
+  },
+  {
     text: t('common.delText'),
     function: 'handleDelete',
     icon: 'ic:baseline-delete-forever',
@@ -160,6 +166,12 @@ export const actionImageList: actionItem[] = [
     ],
   },
   {
+    text: t('business.datasetContent.markNotAnnotated'),
+    function: 'handleResetAnnotationStatus',
+    icon: 'ic:baseline-undo',
+    hasDivider: true,
+  },
+  {
     text: t('common.delText'),
     function: 'handleDelete',
     icon: 'ic:baseline-delete-forever',
@@ -228,6 +240,12 @@ export const actionListFrame: actionItem[] = [
         hasDivider: true,
       },
     ],
+  },
+  {
+    text: t('business.datasetContent.markNotAnnotated'),
+    function: 'handleResetAnnotationStatus',
+    icon: 'ic:baseline-undo',
+    hasDivider: true,
   },
   {
     text: t('common.delText'),

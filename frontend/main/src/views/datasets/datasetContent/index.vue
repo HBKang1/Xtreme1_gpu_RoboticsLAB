@@ -78,6 +78,7 @@
           @handleModelRun="handleModelRun"
           @fetchList="fixedFetchList"
           @handleSplite="handleSplite"
+          @handleResetAnnotationStatus="handleResetAnnotationStatus"
           v-model:name="name"
           @resetMoelResult="getMoelResult"
         >
@@ -115,6 +116,7 @@
               @handleSingleAnnotate="handleSingleAnnotate"
               @handleAnotateFrame="handleAnotateFrame"
               @handleChangeType="handleChangeType"
+              @handleResetAnnotationStatus="handleResetAnnotationStatusSingle"
             />
           </ScrollContainer>
         </div>
@@ -392,7 +394,7 @@
   import { Button } from '/@/components/BasicCustom/Button';
   import { getModelAllApi } from '/@/api/business/models';
   import { useFlowLayout } from '/@/hooks/web/useFlowLayout';
-  import { splitDataSelected } from '/@/api/business/dataset';
+  import { splitDataSelected, resetAnnotationStatusApi } from '/@/api/business/dataset';
   // import { VScroll } from '/@/components/VirtualScroll/index';
   // const [warningRegister, { openModal: openWarningModal, closeModal: closeWarningModal }] =
   //   useModal();
@@ -694,6 +696,28 @@
     await splitDataSelected({
       dataIds: selectedList.value,
       splitType: type,
+    });
+    message.success({
+      content: 'successed',
+      duration: 5,
+    });
+    fixedFetchList();
+  };
+
+  const handleResetAnnotationStatus = async () => {
+    await resetAnnotationStatusApi({
+      dataIds: selectedList.value,
+    });
+    message.success({
+      content: 'successed',
+      duration: 5,
+    });
+    fixedFetchList();
+  };
+
+  const handleResetAnnotationStatusSingle = async (dataId) => {
+    await resetAnnotationStatusApi({
+      dataIds: [dataId],
     });
     message.success({
       content: 'successed',

@@ -174,6 +174,80 @@
                         </template>
                     </a-button>
                 </a-tooltip>
+
+                <!-- model tracking (prototype): propagate boxes N frames -->
+                <template v-if="canEdit() && editor.state.isSeriesFrame">
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('trackLeft1') }}</template>
+                        <a-button
+                            :disabled="disable"
+                            @click="() => onAction('TrackBackward')"
+                            style="width: 40px; margin-left: 8px"
+                        >
+                            <template #icon>
+                                <div>
+                                    <StepBackwardOutlined />
+                                    <AimOutlined style="margin-left: -4px; font-size: 14px" />
+                                </div>
+                            </template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('trackRight1') }}</template>
+                        <a-button
+                            :disabled="disable"
+                            @click="() => onAction('TrackForward')"
+                            style="width: 40px"
+                        >
+                            <template #icon>
+                                <div>
+                                    <AimOutlined style="margin-right: -4px; font-size: 14px" />
+                                    <StepForwardOutlined />
+                                </div>
+                            </template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('trackAllRight1') }}</template>
+                        <a-button
+                            :disabled="disable"
+                            @click="() => onAction('TrackAllForward')"
+                            style="width: 50px"
+                        >
+                            <template #icon>
+                                <div>
+                                    <AimOutlined style="margin-right: -4px; font-size: 14px" />
+                                    <AimOutlined style="margin-right: -4px; font-size: 14px" />
+                                    <StepForwardOutlined />
+                                </div>
+                            </template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-input-number
+                        style="width: 44px"
+                        :disabled="disable"
+                        v-model:value="config.trackFrameN"
+                        :precision="0"
+                        :min="1"
+                        :max="10"
+                        size="small"
+                    />
+                    <a-popover placement="top" trigger="click">
+                        <template #content>
+                            <div style="display: flex; flex-direction: column; gap: 4px">
+                                <a-checkbox v-model:checked="config.trackKeepZ">
+                                    {{ editor.lang('trackKeepZ') }}
+                                </a-checkbox>
+                                <a-checkbox v-model:checked="config.trackKeepRotation">
+                                    {{ editor.lang('trackKeepRot') }}
+                                </a-checkbox>
+                            </div>
+                        </template>
+                        <a-button :disabled="disable">
+                            <template #icon><SettingOutlined /></template>
+                        </a-button>
+                    </a-popover>
+                </template>
             </div>
         </div>
         <div class="bar-right" v-show="!isCheck()" v-if="canEdit()">
@@ -204,7 +278,13 @@
     import useUI from '../../hook/useUI';
     import { ITrackAction, IBottomState } from './useTimeLine';
 
-    import { StepForwardOutlined, StepBackwardOutlined, CopyOutlined } from '@ant-design/icons-vue';
+    import {
+        StepForwardOutlined,
+        StepBackwardOutlined,
+        CopyOutlined,
+        AimOutlined,
+        SettingOutlined,
+    } from '@ant-design/icons-vue';
     import { useInjectEditor } from '../../state';
     const props = defineProps<{
         state: IBottomState;
@@ -242,6 +322,9 @@
         | 'CopyForward'
         | 'CopyBackward'
         | 'CopyAllForward'
+        | 'TrackForward'
+        | 'TrackBackward'
+        | 'TrackAllForward'
         | 'AutoLoad'
         | 'Replay'
         | 'PreFrame'
@@ -281,6 +364,18 @@
 
             case 'CopyAllForward':
                 editor.dataManager.copyAllForward();
+                break;
+
+            case 'TrackForward':
+                editor.dataManager.trackForward();
+                break;
+
+            case 'TrackBackward':
+                editor.dataManager.trackBackward();
+                break;
+
+            case 'TrackAllForward':
+                editor.dataManager.trackAllForward();
                 break;
             case 'Replay':
                 rePlay();

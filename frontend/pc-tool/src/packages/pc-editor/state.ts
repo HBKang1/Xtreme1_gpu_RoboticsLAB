@@ -171,5 +171,8 @@ function getDefaultConfig(): IConfig {
         withoutTaskId: withoutTaskId,
         boxMethod: 'AI',
         autoLoad: false,
+        trackFrameN: 1,
+        trackKeepZ: true,
+        trackKeepRotation: true,
     };
 }

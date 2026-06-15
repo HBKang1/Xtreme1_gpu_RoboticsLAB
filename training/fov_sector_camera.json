@@ -1,0 +1,18 @@
+{
+  "azimuth_min_deg": -49.456,
+  "azimuth_max_deg": 50.2297,
+  "margin_deg": 5.0,
+  "wraps": false,
+  "range_xy_m": null,
+  "bev_occupancy_ratio": 0.276905,
+  "method": "front_camera_fov_from_Zenix_Night_15_calib",
+  "source": "dataset_0124/15_2026-01-24-02-02-55/camera_config camera_image_0",
+  "camera_internal": {
+    "fx": 992.2162229459639,
+    "cx": 972.3541633438845,
+    "fy": 1001.220112853476,
+    "cy": 542.3318126515417,
+    "width": 1920,
+    "height": 1024
+  }
+}

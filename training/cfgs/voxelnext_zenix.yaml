@@ -1,55 +1,45 @@
-# CenterPoint (VoxelResBackBone8x, voxel 0.075) fine-tuned on the zenix dataset.
-# Place at: OpenPCDet/tools/cfgs/zenix_models/centerpoint_zenix.yaml
-# Based on cfgs/nuscenes_models/cbgs_voxel0075_res3d_centerpoint.yaml with:
+# VoxelNeXt (VoxelResBackBone8xVoxelNeXt, voxel 0.075) fine-tuned on zenix.
+# Place at: OpenPCDet/tools/cfgs/zenix_models/voxelnext_zenix.yaml
+# Based on cfgs/nuscenes_models/cbgs_voxel0075_voxelnext.yaml with:
 #   - custom (zenix) dataset, 4 point features instead of 5
-#   - your classes, single detection head (heads are re-initialized anyway)
-#   - no velocity branch (custom GT has no velocity)
-#
-# REPLACE CLASS_NAMES below with the exact list printed by
-# convert_xtreme1_to_openpcdet.py (order matters: it defines label ids).
+#   - 6 zenix classes, no velocity branch (custom GT has no velocity)
+#   - geometry (range/voxel) unchanged so the pretrained backbone transfers
+# Serving: --cfg <this> --ckpt <ft.pth>; NMS_CONFIG kept so app.py full_nms=True.
 
-# actual classes from convert_xtreme1_to_openpcdet.py (2026-06-15), by frequency:
-# Car 3070, Truck 2246, Bus 1245, Pedestrian 583, Bicycle 43, Motorcycle 37
 CLASS_NAMES: ['Car', 'Truck', 'Bus', 'Pedestrian', 'Bicycle', 'Motorcycle']
 
 DATA_CONFIG:
     _BASE_CONFIG_: cfgs/dataset_configs/zenix_dataset.yaml
 
 MODEL:
-    NAME: CenterPoint
+    NAME: VoxelNeXt
 
     VFE:
         NAME: MeanVFE
 
     BACKBONE_3D:
-        NAME: VoxelResBackBone8x
-
-    MAP_TO_BEV:
-        NAME: HeightCompression
-        NUM_BEV_FEATURES: 256
-
-    BACKBONE_2D:
-        NAME: BaseBEVBackbone
-        LAYER_NUMS: [5, 5]
-        LAYER_STRIDES: [1, 2]
-        NUM_FILTERS: [128, 256]
-        UPSAMPLE_STRIDES: [1, 2]
-        NUM_UPSAMPLE_FILTERS: [256, 256]
+        NAME: VoxelResBackBone8xVoxelNeXt
 
     DENSE_HEAD:
-        NAME: CenterHead
+        NAME: VoxelNeXtHead
         CLASS_AGNOSTIC: False
+        INPUT_FEATURES: 128
 
-        # single head over all classes; keep in sync with CLASS_NAMES
+        # grouped heads (by size); keep in sync with CLASS_NAMES
         CLASS_NAMES_EACH_HEAD: [
-            ['Car', 'Truck', 'Bus', 'Pedestrian', 'Bicycle', 'Motorcycle'],
+            ['Car'],
+            ['Truck', 'Bus'],
+            ['Pedestrian'],
+            ['Bicycle', 'Motorcycle'],
         ]
 
-        SHARED_CONV_CHANNEL: 64
+        SHARED_CONV_CHANNEL: 128
+        KERNEL_SIZE_HEAD: 1
+
         USE_BIAS_BEFORE_NORM: True
         NUM_HM_CONV: 2
         SEPARATE_HEAD_CFG:
-            HEAD_ORDER: ['center', 'center_z', 'dim', 'rot']
+            HEAD_ORDER: ['center', 'center_z', 'dim', 'rot']   # no 'vel'
             HEAD_DICT: {
                 'center': {'out_channels': 2, 'num_conv': 2},
                 'center_z': {'out_channels': 1, 'num_conv': 2},
@@ -70,7 +60,7 @@ MODEL:
                 'code_weights': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
             }
 
-        # Keep NMS_CONFIG: the Xtreme1 serving wrapper (app.py full_nms=True)
+        # Keep NMS_CONFIG: the serving wrapper (app.py full_nms auto-detect)
         # reads DENSE_HEAD.POST_PROCESSING.NMS_CONFIG at inference time.
         POST_PROCESSING:
             SCORE_THRESH: 0.1
@@ -87,11 +77,11 @@ MODEL:
         EVAL_METRIC: kitti
 
 OPTIMIZATION:
-    BATCH_SIZE_PER_GPU: 4        # raise on a big GPU (8-16 on 24GB+)
-    NUM_EPOCHS: 50               # small dataset -> epochs are cheap; watch val mAP
+    BATCH_SIZE_PER_GPU: 8        # 24GB 3090
+    NUM_EPOCHS: 50              # small dataset; watch val recall
 
     OPTIMIZER: adam_onecycle
-    LR: 0.0005                   # fine-tuning: ~half of the from-scratch 0.001
+    LR: 0.0005                  # fine-tuning: half of from-scratch 0.001
     WEIGHT_DECAY: 0.01
     MOMENTUM: 0.9
 

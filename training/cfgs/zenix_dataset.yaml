@@ -18,7 +18,8 @@ MAP_CLASS_TO_KITTI: {
     'Truck': 'Car',
     'Bus': 'Car',
     'Pedestrian': 'Pedestrian',
-    'Cyclist': 'Cyclist',
+    'Bicycle': 'Cyclist',
+    'Motorcycle': 'Cyclist',
 }
 
 DATA_SPLIT: {
@@ -36,7 +37,7 @@ POINT_FEATURE_ENCODING: {
     # 2026-06-11: real intensity restored on disk (training/restore_intensity.py),
     # so training uses actual values normalized to [0,1] by the converter.
     # CAUTION train/serve consistency: Xtreme1's MinIO copies (what model runs load)
-    # still lack intensity until the MinIO replacement procedure is executed —
+    # still lack intensity until the MinIO replacement procedure is executed -
     # see docs/intensity-restoration-report.html section 4.
     used_feature_list: ['x', 'y', 'z', 'intensity'],
     src_feature_list: ['x', 'y', 'z', 'intensity'],
@@ -50,11 +51,12 @@ DATA_AUGMENTOR:
           DB_INFO_PATH:
               - custom_dbinfos_train.pkl
           PREPARE: {
-             # replace with YOUR classes (converter output)
-             filter_by_min_points: ['Car:5', 'Truck:5', 'Bus:5', 'Pedestrian:5', 'Cyclist:5'],
+             # min_points=3 (not 5): 16-beam sparsity + FOV crop thin out distant/
+             # rare objects; 5 would empty the Bicycle/Motorcycle dbinfos pool.
+             filter_by_min_points: ['Car:3', 'Truck:3', 'Bus:3', 'Pedestrian:3', 'Bicycle:3', 'Motorcycle:3'],
           }
-          # replace with YOUR classes; counts = how many sampled objects pasted per scene
-          SAMPLE_GROUPS: ['Car:2', 'Truck:3', 'Bus:4', 'Pedestrian:2', 'Cyclist:6']
+          # counts = sampled objects pasted per scene; oversample the rare classes
+          SAMPLE_GROUPS: ['Car:2', 'Truck:3', 'Bus:4', 'Pedestrian:4', 'Bicycle:6', 'Motorcycle:6']
           NUM_POINT_FEATURES: 4
           DATABASE_WITH_FAKELIDAR: False
           REMOVE_EXTRA_WIDTH: [0.0, 0.0, 0.0]

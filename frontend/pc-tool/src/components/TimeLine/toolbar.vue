@@ -229,7 +229,7 @@
                         v-model:value="config.trackFrameN"
                         :precision="0"
                         :min="1"
-                        :max="10"
+                        :max="30"
                         size="small"
                     />
                     <a-popover placement="top" trigger="click">

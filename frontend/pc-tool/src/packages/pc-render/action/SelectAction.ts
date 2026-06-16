@@ -57,7 +57,10 @@ export default class SelectAction extends Action {
         // console.log('onClick');
         let object = this.getObject(event);
         if (object) {
-            this.selectObject(object as any);
+            // Ctrl/Cmd/Shift + click toggles the object in the current selection
+            // (multi-select); a plain click replaces the selection as before.
+            const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+            this.selectObject(object as any, additive);
             this.onSelect();
         }
     }
@@ -140,8 +143,17 @@ export default class SelectAction extends Action {
         return findObject;
     }
 
-    selectObject(object?: AnnotateObject) {
-        this.renderView.pointCloud.selectObject(object);
+    selectObject(object?: AnnotateObject, additive: boolean = false) {
+        const pointCloud = this.renderView.pointCloud;
+        if (additive && object) {
+            let selection = pointCloud.selection ? pointCloud.selection.slice() : [];
+            const index = selection.indexOf(object);
+            if (index >= 0) selection.splice(index, 1);
+            else selection.push(object);
+            pointCloud.selectObject(selection);
+        } else {
+            pointCloud.selectObject(object);
+        }
     }
 
     getProjectImgPos(pos: THREE.Vector2, target?: THREE.Vector2) {

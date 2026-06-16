@@ -230,7 +230,8 @@ export default class MainRenderView extends Render {
             annotate3D.visible = true;
             annotate3D.children.forEach((box) => {
                 if (box === object3d) return;
-                this.renderBox(box as Box);
+                // highlight every selected box (multi-select), not just object3d
+                this.renderBox(box as Box, selectionMap[box.uuid] ? this.selectColor : undefined);
             });
 
             // render select

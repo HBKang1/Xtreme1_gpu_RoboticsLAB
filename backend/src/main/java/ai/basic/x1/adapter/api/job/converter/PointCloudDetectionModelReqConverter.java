@@ -38,11 +38,14 @@ public class PointCloudDetectionModelReqConverter {
      * the previous chunk's active tracks for trackId continuity; null/empty for
      * the first chunk. Detection is truth -> keep z/rotation default false.
      *
-     * @param orderedFrames frames in (name ASC, id ASC) order
+     * @param orderedFrames   frames in (name ASC, id ASC) natural order
      * @param seedTrackStates previous chunk's trackStates, or null for chunk 0
+     * @param startId         floor for newly-allocated trackingIds (FIX #1: prevents
+     *                        cross-chunk id reuse when a track terminates mid-scene)
      */
     public static PointCloudSequenceReqDTO buildSequenceRequestParam(List<DataInfoBO> orderedFrames,
-                                                                     List<PointCloudSequenceRespDTO.TrackState> seedTrackStates) {
+                                                                     List<PointCloudSequenceRespDTO.TrackState> seedTrackStates,
+                                                                     int startId) {
         var frames = new ArrayList<PointCloudSequenceReqDTO.Frame>(CollUtil.isNotEmpty(orderedFrames) ? orderedFrames.size() : 0);
         if (CollUtil.isNotEmpty(orderedFrames)) {
             orderedFrames.forEach(frame -> {
@@ -69,6 +72,7 @@ public class PointCloudDetectionModelReqConverter {
         return PointCloudSequenceReqDTO.builder()
                 .frames(frames)
                 .seedObjects(seedObjects)
+                .startId(startId)
                 .keep(PointCloudSequenceReqDTO.Keep.builder().z(false).rotation(false).build())
                 .build();
     }

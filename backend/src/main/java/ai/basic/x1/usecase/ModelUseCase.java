@@ -290,12 +290,17 @@ public class ModelUseCase {
                         return;
                     }
 
-                    AtomicInteger sendSuccessNum = new AtomicInteger(0);
+                    // FIX #3: track actual dispatched count; reconcile setCount AFTER the
+                    // loop so a skipped scene (run deleted mid-loop) doesn't leave the
+                    // progress denominator higher than the number of sent messages.
+                    int dispatched = 0;
                     AtomicInteger insertRecordNum = new AtomicInteger(0);
-                    orderedSceneFrames.forEach((sceneId, frameDataIds) -> {
+                    for (var entry : orderedSceneFrames.entrySet()) {
+                        var sceneId = entry.getKey();
+                        var frameDataIds = entry.getValue();
                         if (isNotExistModelRunRecord(modelRunRecord)) {
                             log.error("model {} runId {} is delete.", modelBO.getModelCode(), modelRunRecord.getRunNo());
-                            return;
+                            break;
                         }
                         // one pre-insert row per scene; representative dataId = first frame
                         var representativeDataId = CollUtil.getFirst(frameDataIds);
@@ -303,12 +308,16 @@ public class ModelUseCase {
                                 List.of(DataInfoBO.builder().id(representativeDataId).build()), modelRunRecord));
                         // one message per scene
                         this.sendDatasetModelMessageToMQ(buildSceneMessage(modelRunRecord, modelBO, sceneId, frameDataIds));
-                        sendSuccessNum.getAndIncrement();
-                        // keep the progress denominator == scene count (overwrite, R4)
-                        modelSerialNoCountDAO.setCount(modelSerialNo, sceneCount);
-                    });
-                    log.info("model {} runId {} scene insert num {}, send num {}.",
-                            modelBO.getModelCode(), modelRunRecord.getRunNo(), insertRecordNum, sendSuccessNum);
+                        dispatched++;
+                    }
+                    // FIX #3: reconcile denominator to actual sent count so updateProgress
+                    // reaches currentPosition==lastPosition and the run finalizes.
+                    if (dispatched == 0) {
+                        log.warn("tracking run dispatched 0 scenes. runId {}", modelRunRecord.getRunNo());
+                    }
+                    modelSerialNoCountDAO.setCount(modelSerialNo, dispatched);
+                    log.info("model {} runId {} scene insert num {}, dispatched num {}.",
+                            modelBO.getModelCode(), modelRunRecord.getRunNo(), insertRecordNum, dispatched);
                 } catch (Exception e) {
                     log.info("model {} runId {} tracking dispatch fail. Exception:{}",
                             modelBO.getModelCode(), modelRunRecord.getRunNo(), e);
@@ -341,11 +350,45 @@ public class ModelUseCase {
                 .forEach(frame -> grouped.computeIfAbsent(frame.getParentId(), k -> new ArrayList<>()).add(frame));
         var result = new LinkedHashMap<Long, List<Long>>();
         grouped.forEach((sceneId, frames) -> {
-            frames.sort(Comparator.comparing((DataInfoBO d) -> StrUtil.nullToEmpty(d.getName()))
+            // FIX #2: use natural order so '2' sorts before '10' (lexical would give '10' < '2')
+            frames.sort(Comparator.<DataInfoBO, String>comparing(
+                            d -> StrUtil.nullToEmpty(d.getName()), ModelUseCase::naturalCompare)
                     .thenComparing(DataInfoBO::getId));
             result.put(sceneId, frames.stream().map(DataInfoBO::getId).collect(Collectors.toList()));
         });
         return result;
+    }
+
+    /**
+     * FIX #2: Natural-order string comparator. Splits each string into runs of
+     * digits and non-digits, comparing digit runs numerically and non-digit runs
+     * lexicographically. This makes '2' sort before '10', handles zero-padded
+     * names correctly ('002' == '2' numerically, tie-broken by id), and degrades
+     * gracefully to lexical order for purely alphabetic names.
+     */
+    private static int naturalCompare(String a, String b) {
+        int i = 0, j = 0;
+        while (i < a.length() && j < b.length()) {
+            char ca = a.charAt(i), cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                // collect digit runs
+                int ei = i, ej = j;
+                while (ei < a.length() && Character.isDigit(a.charAt(ei))) ei++;
+                while (ej < b.length() && Character.isDigit(b.charAt(ej))) ej++;
+                // compare numerically via BigDecimal-free approach: longer run = larger,
+                // equal length = lexical (digit chars have same ordinal as numeric value)
+                int lenA = ei - i, lenB = ej - j;
+                if (lenA != lenB) return lenA - lenB;
+                int cmp = a.substring(i, ei).compareTo(b.substring(j, ej));
+                if (cmp != 0) return cmp;
+                i = ei; j = ej;
+            } else {
+                int cmp = Character.compare(ca, cb);
+                if (cmp != 0) return cmp;
+                i++; j++;
+            }
+        }
+        return Integer.compare(a.length() - i, b.length() - j);
     }
 
     private ModelMessageBO buildSceneMessage(ModelRunRecord modelRunRecord, ModelBO modelBO,

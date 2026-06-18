@@ -29,6 +29,13 @@ public class PointCloudSequenceReqDTO {
     private List<Frame> frames;
 
     /**
+     * Floor for newly-allocated trackingIds in this chunk. The serving side
+     * must not assign a new id < startId, preventing cross-chunk id reuse when
+     * a track terminates and its localId would otherwise be recycled.
+     */
+    private Integer startId;
+
+    /**
      * Active tracks carried over from the previous chunk (for trackId
      * continuity). Null/empty for the first chunk of a scene.
      */

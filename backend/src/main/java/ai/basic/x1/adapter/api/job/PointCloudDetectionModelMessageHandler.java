@@ -18,6 +18,7 @@ import ai.basic.x1.entity.enums.ModelCodeEnum;
 import ai.basic.x1.usecase.DataInfoUseCase;
 import ai.basic.x1.usecase.ModelUseCase;
 import ai.basic.x1.usecase.exception.UsecaseCode;
+import ai.basic.x1.usecase.exception.UsecaseException;
 import ai.basic.x1.util.Constants;
 import ai.basic.x1.util.DefaultConverter;
 import cn.hutool.core.collection.CollUtil;
@@ -207,21 +208,34 @@ public class PointCloudDetectionModelMessageHandler extends AbstractModelMessage
                 return true;
             }
 
-            var sequenceUrl = buildSequenceUrl(modelMessageBO.getUrl());
+            var sequenceUrl = buildSequenceUrl(modelMessageBO.getUrl());  // FIX #8: throws if url bad
 
             List<PointCloudSequenceRespDTO.TrackState> seedTrackStates = null;
+            int nextStartId = 0;   // FIX #1: monotonic floor for new trackingIds per scene
+            boolean hadFrameError = false;   // FIX #5
             for (var chunk : CollUtil.split(orderedFrames, Constants.TRACKING_CHUNK_SIZE)) {
-                var apiResult = getRetrySequenceApiResult(chunk, seedTrackStates, sequenceUrl);
-                if (apiResult == null || apiResult.getCode() != UsecaseCode.OK || ObjectUtil.isNull(apiResult.getData())) {
+                var apiResult = getRetrySequenceApiResult(chunk, seedTrackStates, nextStartId, sequenceUrl);
+                if (apiResult == null || !UsecaseCode.OK.equals(apiResult.getCode()) || ObjectUtil.isNull(apiResult.getData())) {
                     var msg = apiResult == null ? "sequence service is busy" : apiResult.getMessage();
                     log.error("tracking scene {}: chunk failed permanently: {}", sceneId, msg);
                     finalizeSceneFailure(modelMessageBO, StrUtil.isEmpty(msg) ? "sequence run error" : msg);
                     return true;
                 }
-                persistChunk(apiResult.getData(), modelRunRecord, sceneId, sourceId, modelClassMap);
+                // FIX #5: detect frame-level errors before persisting
+                var chunkHadFrameError = persistChunk(apiResult.getData(), modelRunRecord, sceneId, sourceId, modelClassMap);
+                if (chunkHadFrameError) {
+                    hadFrameError = true;
+                }
                 seedTrackStates = apiResult.getData().getTrackStates();
+                // FIX #1: advance the id floor past every id seen in this chunk
+                nextStartId = computeNextStartId(apiResult.getData(), nextStartId);
             }
-            finalizeSceneSuccess(modelMessageBO);
+            // FIX #5: any frame error = SUCCESS_WITH_ERROR, not clean success
+            if (hadFrameError) {
+                finalizeSceneFailure(modelMessageBO, "one or more frames failed during sequence processing");
+            } else {
+                finalizeSceneSuccess(modelMessageBO);
+            }
             return true;
         } catch (Exception e) {
             // never let a scene failure escape as false/exception (S0.3 / R7)
@@ -267,41 +281,68 @@ public class PointCloudDetectionModelMessageHandler extends AbstractModelMessage
      * url points at the serving container's recognition path
      * ({@code .../pointCloud/recognition}); the sequence endpoint shares the same
      * base ({@code .../pointCloud/sequence}).
+     * FIX #8: fails fast with a clear error if the url does not contain the
+     * recognition path so misconfigured model urls surface immediately.
      */
     private String buildSequenceUrl(String modelUrl) {
-        return StrUtil.nullToEmpty(modelUrl)
-                .replace(Constants.MODEL_RECOGNITION_PATH, Constants.MODEL_SEQUENCE_PATH);
+        var base = StrUtil.nullToEmpty(modelUrl);
+        var result = base.replace(Constants.MODEL_RECOGNITION_PATH, Constants.MODEL_SEQUENCE_PATH);
+        if (!result.contains(Constants.MODEL_SEQUENCE_PATH)) {
+            throw new UsecaseException(UsecaseCode.PARAM_ERROR,
+                    "model URL does not contain the recognition path; cannot derive the sequence endpoint: " + modelUrl);
+        }
+        return result;
     }
 
+    /**
+     * FIX #7: retry on both thrown exceptions AND non-OK envelope codes (a 200
+     * with code!=OK would previously break out of the loop immediately). Retries
+     * up to SEQUENCE_RETRY_COUNT attempts on any failure condition.
+     */
     private ApiResult<PointCloudSequenceRespDTO> getRetrySequenceApiResult(List<DataInfoBO> chunk,
                                                                            List<PointCloudSequenceRespDTO.TrackState> seedTrackStates,
-                                                                           String url) {
-        var reqDTO = PointCloudDetectionModelReqConverter.buildSequenceRequestParam(chunk, seedTrackStates);
+                                                                           int startId, String url) {
+        var reqDTO = PointCloudDetectionModelReqConverter.buildSequenceRequestParam(chunk, seedTrackStates, startId);
         ApiResult<PointCloudSequenceRespDTO> apiResult = null;
         int count = 0;
-        while (count <= SEQUENCE_RETRY_COUNT && ObjectUtil.isNull(apiResult)) {
+        while (count <= SEQUENCE_RETRY_COUNT) {
             try {
                 apiResult = preLabelModelHttpCaller.callSequenceModel(reqDTO, url);
-                break;
+                if (UsecaseCode.OK.equals(apiResult.getCode())) {
+                    return apiResult;   // success — exit retry loop
+                }
+                log.warn("sequence service returned non-OK code on attempt {}: {}", count, apiResult.getCode());
             } catch (Throwable throwable) {
-                log.error("call sequence service is error", throwable);
+                log.error("call sequence service error on attempt {}", count, throwable);
             }
             count++;
         }
-        return apiResult;
+        return apiResult;  // null or last non-OK result — caller treats as permanent failure
     }
 
     /**
      * Map a chunk's per-frame objects to global trackId/trackName and persist
      * each frame via the idempotent delete-then-insert writer.
+     * FIX #5: frames with {@code frameError=true} are skipped (not cleared) and
+     * cause the method to return {@code true} so the caller can finalize the
+     * scene as a failure.
+     *
+     * @return true if any frame in the chunk had a frameError
      */
-    private void persistChunk(PointCloudSequenceRespDTO chunkResult, ModelRunRecord modelRunRecord,
-                              Long sceneId, Long sourceId, Map<String, ModelClass> modelClassMap) {
+    private boolean persistChunk(PointCloudSequenceRespDTO chunkResult, ModelRunRecord modelRunRecord,
+                                 Long sceneId, Long sourceId, Map<String, ModelClass> modelClassMap) {
         if (CollUtil.isEmpty(chunkResult.getFrames())) {
-            return;
+            return false;
         }
         var modelSerialNo = modelRunRecord.getModelSerialNo();
-        chunkResult.getFrames().forEach(frame -> {
+        boolean hadFrameError = false;
+        for (var frame : chunkResult.getFrames()) {
+            // FIX #5: skip persistence for frames that failed on the serving side
+            if (Boolean.TRUE.equals(frame.getFrameError())) {
+                log.warn("tracking scene frame {}: frameError=true, skipping persistence", frame.getId());
+                hadFrameError = true;
+                continue;
+            }
             var objectBOs = new ArrayList<DataAnnotationObjectBO>(
                     frame.getObjects() == null ? 0 : frame.getObjects().size());
             if (CollUtil.isNotEmpty(frame.getObjects())) {
@@ -323,7 +364,37 @@ public class PointCloudDetectionModelMessageHandler extends AbstractModelMessage
             // delete-then-insert per frame (idempotent, AC9). Empty frames are
             // cleared so a re-run does not leave stale rows.
             dataAnnotationObjectModelWriter.replaceFrameObjects(frame.getId(), sourceId, objectBOs);
-        });
+        }
+        return hadFrameError;
+    }
+
+    /**
+     * FIX #1: compute the next startId floor after a chunk by finding the
+     * maximum trackingId seen across all frame objects AND all trackStates.
+     * Returns max(currentFloor, maxSeen + 1) so new ids in the next chunk
+     * are globally monotonic per scene and dead ids are never reused.
+     */
+    private int computeNextStartId(PointCloudSequenceRespDTO chunkResult, int currentFloor) {
+        int max = currentFloor - 1;
+        if (CollUtil.isNotEmpty(chunkResult.getFrames())) {
+            for (var frame : chunkResult.getFrames()) {
+                if (CollUtil.isNotEmpty(frame.getObjects())) {
+                    for (var obj : frame.getObjects()) {
+                        if (obj.getTrackingId() != null && obj.getTrackingId() > max) {
+                            max = obj.getTrackingId();
+                        }
+                    }
+                }
+            }
+        }
+        if (CollUtil.isNotEmpty(chunkResult.getTrackStates())) {
+            for (var state : chunkResult.getTrackStates()) {
+                if (state.getTrackingId() != null && state.getTrackingId() > max) {
+                    max = state.getTrackingId();
+                }
+            }
+        }
+        return Math.max(currentFloor, max + 1);
     }
 
     private String resolveClassName(String label, Map<String, ModelClass> modelClassMap) {

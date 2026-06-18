@@ -38,6 +38,12 @@ public class PointCloudSequenceRespDTO {
     public static class FrameResult {
         private Long id;
         private List<SequenceObject> objects;
+        /**
+         * True when the serving side failed to process this frame (download or
+         * model error). The Java handler skips persistence for such frames and
+         * finalizes the scene as a failure (FIX #5).
+         */
+        private Boolean frameError;
     }
 
     /**

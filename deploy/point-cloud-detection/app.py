@@ -373,9 +373,12 @@ class SequenceHandler(AppHandler):
         keep_z = bool(keep.get('z', False))          # detection is truth -> default False
         keep_rot = bool(keep.get('rotation', False))
 
-        # monotonic per-call trackingId counter; seeded above any incoming seed id
+        # monotonic per-call trackingId counter; never below backend-provided floor
+        # (startId) so new ids are globally monotonic across chunks even when all
+        # prior tracks have terminated (avoids reusing a dead track's id)
         seed_ids = [int(s['trackingId']) for s in seeds if s.get('trackingId') is not None]
-        self._next_id = (max(seed_ids) + 1) if seed_ids else 0
+        start_id = int(args.get('startId') or 0)
+        self._next_id = max(start_id, (max(seed_ids) + 1) if seed_ids else 0)
 
         tracks = [self._build_seed_track(seed, keep_z) for seed in seeds]
 
@@ -531,13 +534,16 @@ class SequenceHandler(AppHandler):
             class_names = self.predictor.class_names
         except Exception as e:
             logging.exception(e)
-            # advance active tracks by velocity so the next frame's matching does
-            # not use a stale reference (a download/server error says nothing
-            # about the objects); no miss counted, no objects emitted
+            # advance active tracks by velocity and count the frame as a miss so
+            # ghost tracks are eventually terminated during an outage rather than
+            # drifting forever; same lifecycle as a normal unmatched frame
             for tr in tracks:
                 if tr['active']:
                     tr['pos'] = tr['pos'] + tr['vel']
-            return {'id': frame_id, 'objects': []}
+                    tr['miss'] += 1
+                    if tr['miss'] > TRACK_MAX_MISSES:
+                        tr['active'] = False
+            return {'id': frame_id, 'objects': [], 'frameError': True}
 
         # frame[0]: match detections against incoming seeds for ID continuity;
         # frame[i>0]: match detections against active tracks (CV prediction).

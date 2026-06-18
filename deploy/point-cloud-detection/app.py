@@ -343,6 +343,254 @@ class TrackHandler(AppHandler):
         return matches
 
 
+class SequenceHandler(AppHandler):
+    """Detection-driven sequence detection+tracking endpoint (/pointCloud/sequence).
+
+    This is the INVERSE of TrackHandler. TrackHandler propagates a fixed set of
+    seed boxes (discarding unmatched detections and emitting synthetic
+    constant-velocity/snap boxes). Here "detection is truth":
+      - every frame is fully detected (shared predictor + intensity<=2 filter);
+      - detections are associated to active tracks only to carry the trackingId
+        forward (greedy BEV match against constant-velocity predictions);
+      - a matched track is updated with the DETECTION's geometry (box=detection,
+        not a fixed seed size); keep_z/keep_rot default False -> use detection
+        z and heading;
+      - an UNMATCHED DETECTION spawns a NEW track (monotonic per-call id);
+      - an UNMATCHED TRACK only increments miss (terminated after
+        TRACK_MAX_MISSES) and emits NOTHING -- no synthetic fallback boxes.
+    Only real detections appear in the output. Called server-to-server from the
+    Java backend (chunked sequence). Inherits initialize() (shared predictor)
+    and reuses _greedy_match/_gate/ang_diff/download_and_clean/TRACK_* from
+    AppHandler/TrackHandler.
+    """
+
+    # override
+    def post(self):
+        args = self.args
+        frames = self.get_field(args, key='frames', type_=list, check_empty=True)
+        seeds = args.get('seedObjects') or []
+        keep = args.get('keep') or {}
+        keep_z = bool(keep.get('z', False))          # detection is truth -> default False
+        keep_rot = bool(keep.get('rotation', False))
+
+        # monotonic per-call trackingId counter; seeded above any incoming seed id
+        seed_ids = [int(s['trackingId']) for s in seeds if s.get('trackingId') is not None]
+        self._next_id = (max(seed_ids) + 1) if seed_ids else 0
+
+        tracks = [self._build_seed_track(seed, keep_z) for seed in seeds]
+
+        # frames are processed in order. The frame[0]-vs-frame[i>0] distinction
+        # the spec calls for is handled uniformly: at frame[0] the active tracks
+        # are exactly the seeds (or none), so detections greedy-match the seeds
+        # for ID continuity and unmatched detections spawn new tracks -- same
+        # code path as every later frame.
+        out_frames = [self._process_frame(frame, tracks, keep_z, keep_rot)
+                      for frame in frames]
+
+        # clean up memory to avoid OOM (mirrors AppHandler.post)
+        gc.collect()
+
+        self.return_ok({
+            'frames': out_frames,
+            'trackStates': self._track_states(tracks),
+        })
+
+    def _alloc_id(self):
+        tid = self._next_id
+        self._next_id += 1
+        return tid
+
+    @staticmethod
+    def _vec(x, y, z):
+        return np.array([float(x), float(y), float(z)], dtype=np.float64)
+
+    def _build_seed_track(self, seed, keep_z):
+        """Build an active track from a chunk-continuity seed (flat geometry)."""
+        pos = self._vec(seed['x'], seed['y'], seed['z'])
+        has_prev = seed.get('prevX') is not None
+        if has_prev:
+            prev = self._vec(seed['prevX'], seed['prevY'], seed['prevZ'])
+            vel = pos - prev
+        else:
+            vel = np.zeros(3, dtype=np.float64)
+        if keep_z:
+            vel[2] = 0.0
+        return {
+            'id': int(seed['trackingId']),
+            'label': seed['label'],
+            'pos': pos,
+            'vel': vel,
+            'size': [float(seed['dx']), float(seed['dy']), float(seed['dz'])],
+            'heading': float(seed['rotZ']),
+            'confidence': float(seed.get('confidence', TRACK_FALLBACK_CONFIDENCE)),
+            'miss': 0,
+            'active': True,
+            'emitted': False,   # whether the track produced an object in the current frame
+        }
+
+    def _spawn_track(self, box, score, label):
+        """Create a new track from an unmatched detection (box = (7,) array).
+        A new track always adopts the detection's full geometry (z + heading),
+        so keep_z/keep_rot do not apply here."""
+        pos = box[:3].astype(np.float64).copy()
+        track = {
+            'id': self._alloc_id(),
+            'label': label,
+            'pos': pos,
+            'vel': np.zeros(3, dtype=np.float64),
+            'size': [float(box[3]), float(box[4]), float(box[5])],
+            'heading': float(box[6]),
+            'confidence': float(score),
+            'miss': 0,
+            'active': True,
+            'emitted': False,
+        }
+        return track
+
+    def _update_track(self, track, box, score, keep_z, keep_rot):
+        """Update a matched track with the detection geometry (box = (7,) array)."""
+        new_pos = box[:3].astype(np.float64).copy()
+        if keep_z:
+            new_pos[2] = track['pos'][2]
+        # front/back ambiguity: flip detection heading if it is more than 90
+        # degrees away from the track's current heading (same rule as TrackHandler)
+        det_heading = float(box[6])
+        if abs(ang_diff(det_heading, track['heading'])) > np.pi / 2:
+            det_heading = ang_diff(det_heading + np.pi, 0.0)
+        if not keep_rot:
+            track['heading'] = det_heading
+        track['vel'] = new_pos - track['pos']
+        track['pos'] = new_pos
+        # box geometry is always the detection's (detection is truth); keep_z/
+        # keep_rot only govern the z/heading components handled above
+        track['size'] = [float(box[3]), float(box[4]), float(box[5])]
+        track['confidence'] = float(score)
+        track['miss'] = 0
+
+    def _emit_object(self, track):
+        """Flat object matching the /pointCloud/recognition shape + trackingId."""
+        return {
+            'trackingId': track['id'],
+            'label': track['label'],
+            'confidence': round(float(track['confidence']), 3),
+            'x': round(float(track['pos'][0]), 3),
+            'y': round(float(track['pos'][1]), 3),
+            'z': round(float(track['pos'][2]), 3),
+            'dx': round(float(track['size'][0]), 3),
+            'dy': round(float(track['size'][1]), 3),
+            'dz': round(float(track['size'][2]), 3),
+            'rotX': 0,
+            'rotY': 0,
+            'rotZ': round(float(track['heading']), 3),
+        }
+
+    def _track_states(self, tracks):
+        """Active tracks at the LAST processed frame -> next chunk's seedObjects.
+        prev* is the previous-frame center (pos - vel) so the next chunk can
+        reconstruct velocity for constant-velocity prediction."""
+        states = []
+        for t in tracks:
+            if not t['active']:
+                continue
+            prev = t['pos'] - t['vel']
+            states.append({
+                'trackingId': t['id'],
+                'label': t['label'],
+                'x': round(float(t['pos'][0]), 3),
+                'y': round(float(t['pos'][1]), 3),
+                'z': round(float(t['pos'][2]), 3),
+                'dx': round(float(t['size'][0]), 3),
+                'dy': round(float(t['size'][1]), 3),
+                'dz': round(float(t['size'][2]), 3),
+                'rotZ': round(float(t['heading']), 3),
+                'prevX': round(float(prev[0]), 3),
+                'prevY': round(float(prev[1]), 3),
+                'prevZ': round(float(prev[2]), 3),
+            })
+        return states
+
+    def _process_frame(self, frame, tracks, keep_z, keep_rot):
+        frame_id = frame.get('id')
+        try:
+            t = Timing()
+            url = normalize_pcd_url(frame['pointCloudUrl'])
+            logging.info(f"{'-'*10} SEQUENCE {frame_id} {url} {'-'*10}")
+
+            pc = download_and_clean(url, t=t)
+            det, _ = AppHandler.predictor(points=pc, full_nms=AppHandler.full_nms)
+            t.log_interval(f"MODEL run")
+
+            boxes = det['pred_boxes']
+            scores = det['pred_scores']
+            labels = det['pred_labels']
+            # drop low-score detections (same floor TrackHandler uses)
+            score_mask = scores >= TRACK_SCORE_FLOOR
+            boxes = boxes[score_mask]
+            scores = scores[score_mask]
+            labels = labels[score_mask]
+            class_names = self.predictor.class_names
+        except Exception as e:
+            logging.exception(e)
+            # advance active tracks by velocity so the next frame's matching does
+            # not use a stale reference (a download/server error says nothing
+            # about the objects); no miss counted, no objects emitted
+            for tr in tracks:
+                if tr['active']:
+                    tr['pos'] = tr['pos'] + tr['vel']
+            return {'id': frame_id, 'objects': []}
+
+        # frame[0]: match detections against incoming seeds for ID continuity;
+        # frame[i>0]: match detections against active tracks (CV prediction).
+        # In both cases _greedy_match associates by BEV center distance with a
+        # per-track gate that widens with consecutive misses.
+        for tr in tracks:
+            tr['emitted'] = False
+        active = [tr for tr in tracks if tr['active']]
+
+        # reuse TrackHandler's greedy BEV matcher + gate (SequenceHandler does
+        # not inherit TrackHandler -- only its association primitives are reused)
+        matches = TrackHandler._greedy_match(active, boxes)   # {track_idx: det_idx}
+        matched_dets = set(matches.values())
+
+        objects = []
+        # 1) matched tracks -> update with detection geometry, emit
+        for i, track in enumerate(active):
+            j = matches.get(i)
+            if j is None:
+                continue
+            self._update_track(track, boxes[j], float(scores[j]), keep_z, keep_rot)
+            track['emitted'] = True
+            objects.append(self._emit_object(track))
+
+        # 2) unmatched detections -> spawn a NEW track, emit
+        for j in range(len(boxes)):
+            if j in matched_dets:
+                continue
+            label = class_names[int(labels[j]) - 1].upper()
+            new_track = self._spawn_track(boxes[j], float(scores[j]), label)
+            tracks.append(new_track)
+            new_track['emitted'] = True
+            objects.append(self._emit_object(new_track))
+
+        # 3) unmatched active tracks -> miss++, predict pos forward (for next
+        # frame's matching only), terminate after TRACK_MAX_MISSES. NO synthetic
+        # box is emitted for an unmatched track (detection is truth).
+        for track in active:
+            if track['emitted']:
+                continue
+            track['pos'] = track['pos'] + track['vel']
+            track['miss'] += 1
+            if track['miss'] > TRACK_MAX_MISSES:
+                track['active'] = False
+                logging.info(f"SEQUENCE {track['id']}: terminated after "
+                             f"{track['miss']} consecutive misses")
+
+        logging.info(f"SEQUENCE {frame_id}: {len(boxes)} detections, "
+                     f"{len(matches)}/{len(active)} matched, "
+                     f"{len(boxes) - len(matched_dets)} new tracks")
+        return {'id': frame_id, 'objects': objects}
+
+
 # model presets: cfg + default checkpoint. full_nms is auto-detected from the cfg,
 # so any OpenPCDet model can also be served via explicit --cfg/--ckpt without code changes.
 # OpenPCDet tools/cfgs yamls resolve _BASE_CONFIG_ relative to working_dir (/app/pcdet_open).
@@ -379,6 +627,7 @@ def main():
     start_service([
             (r'/pointCloud/recognition', AppHandler, dict(cfg_file=cfg_file, ckpt=ckpt)),
             (r'/pointCloud/track', TrackHandler, dict(cfg_file=cfg_file, ckpt=ckpt)),
+            (r'/pointCloud/sequence', SequenceHandler, dict(cfg_file=cfg_file, ckpt=ckpt)),
         ],
         args)
 

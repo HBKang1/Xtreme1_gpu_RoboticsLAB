@@ -58,6 +58,7 @@ export default {
     confidence: 'Confidence',
     classes: '种类',
     predict: '全方位预测模型',
+    tracking: '跟踪',
     selectAll: '全部选择',
     unselectAll: '取消选择',
     selectDataset: '请先选择数据集',

@@ -77,6 +77,11 @@
             {{ t('business.models.runModel.FliterModel') }}
           </Checkbox>
         </Form.Item>
+        <Form.Item>
+          <Checkbox v-model:checked="formState.trackingMode">
+            {{ t('business.models.runModel.tracking') }}
+          </Checkbox>
+        </Form.Item>
         <div style="margin-left: 35px" v-show="formState.checkedResult">
           <Form.Item
             :label="t('business.models.runModel.classes')"
@@ -148,6 +153,7 @@
   interface IFormState {
     checkedResult?: boolean;
     checkedData?: boolean;
+    trackingMode?: boolean;
     sliderValue: [number, number];
     tagsList: any[];
     dataCountRatio: number;
@@ -158,6 +164,7 @@
   const formState = reactive<IFormState>({
     checkedResult: false,
     checkedData: false,
+    trackingMode: false,
     sliderValue: [0.5, 1],
     tagsList: [],
     dataCountRatio: 100,
@@ -196,6 +203,7 @@
         minConfidence: formState.sliderValue[0],
         maxConfidence: formState.sliderValue[1],
         classes: JSON.parse(JSON.stringify(classes)),
+        runMode: formState.trackingMode ? 'TRACKING' : undefined,
       };
     } else {
       // 未勾选状态 -- 全部传
@@ -213,6 +221,7 @@
         minConfidence: defaultFormState.sliderValue[0],
         maxConfidence: defaultFormState.sliderValue[1],
         classes: JSON.parse(JSON.stringify(classes)),
+        runMode: formState.trackingMode ? 'TRACKING' : undefined,
       };
     }
 
@@ -346,6 +355,7 @@
   const handleReset = () => {
     formState.checkedResult = false;
     formState.checkedData = false;
+    formState.trackingMode = false;
     formState.sliderValue = [0.5, 1];
     formState.tagsList = JSON.parse(JSON.stringify(classes));
 

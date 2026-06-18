@@ -60,6 +60,7 @@ export default {
     predict: 'Predict all in Model',
 
     FliterModel: 'Filter with model results',
+    tracking: 'Tracking',
     FliterData: 'Filter with data',
     excludeData: 'Exclude the data that already run under this model',
     Splite: 'Splite',

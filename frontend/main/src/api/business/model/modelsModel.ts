@@ -77,6 +77,7 @@ export interface ResultsModelParam {
   minConfidence: number;
   maxConfidence: number;
   classes: string[];
+  runMode?: string;
 }
 
 /** model run params */

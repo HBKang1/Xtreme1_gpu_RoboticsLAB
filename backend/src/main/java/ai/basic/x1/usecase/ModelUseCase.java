@@ -236,7 +236,136 @@ public class ModelUseCase {
                 .resultFilterParam(modelRunBO.getResultFilterParam())
                 .dataCount(totalDataNum).build();
         modelRunRecordDAO.save(modelRunRecord);
-        this.sendModelMessageAsync(modelRunRecord, modelBO, totalDataNum, dataIds);
+        if (isTrackingRun(modelBO, modelRunBO.getResultFilterParam())) {
+            this.sendSceneModelMessageAsync(modelRunRecord, modelBO, dataIds);
+        } else {
+            this.sendModelMessageAsync(modelRunRecord, modelBO, totalDataNum, dataIds);
+        }
+    }
+
+    /**
+     * Tracking is opt-in: only when resultFilterParam.runMode == TRACKING AND the
+     * model is a LIDAR_DETECTION model. Every other case is the unchanged
+     * detection path (R10/AC12).
+     */
+    private boolean isTrackingRun(ModelBO modelBO, cn.hutool.json.JSONObject resultFilterParam) {
+        if (ObjectUtil.isNull(modelBO) || !ModelCodeEnum.LIDAR_DETECTION.equals(modelBO.getModelCode())) {
+            return false;
+        }
+        if (ObjectUtil.isNull(resultFilterParam)) {
+            return false;
+        }
+        return Constants.MODEL_RUN_MODE_TRACKING.equalsIgnoreCase(resultFilterParam.getStr(Constants.MODEL_RUN_MODE_KEY));
+    }
+
+    /**
+     * Per-scene dispatch for a tracking run (B1). Groups the selected dataIds by
+     * sceneId (data.parentId), orders each scene's frames by name/id ASC, and
+     * emits ONE message per scene carrying sceneId + the ordered dataId list.
+     * Frame point cloud urls are fetched in the handler via DB to keep the
+     * message small (R8).
+     * <p>
+     * Accounting reconciliation (R4): the progress counter is per-scene, so the
+     * pre-inserted model_dataset_result is ONE row per scene (representative
+     * dataId = the scene's first frame, collision-free on uk_model_serial_no_data_id)
+     * and setCount = scene count (initial + per-batch overwrite).
+     */
+    private void sendSceneModelMessageAsync(ModelRunRecord modelRunRecord, ModelBO modelBO, List<Long> dataIds) {
+        Assert.notNull(modelRunRecord, "modelRunRecord is null");
+        log.info("start send scene model message (tracking). datasetId: {}, runRecodeId: {}",
+                modelRunRecord.getDatasetId(), modelRunRecord.getId());
+        try {
+            executorService.execute(Objects.requireNonNull(TtlRunnable.get(() -> {
+                try {
+                    var modelSerialNo = modelRunRecord.getModelSerialNo();
+                    modelSerialNoIncrDAO.removeModelSerialNo(modelSerialNo);
+
+                    // Build the per-scene ordered frame structure for all selected
+                    // dataIds (load in sub-batches to bound memory, then group).
+                    var orderedSceneFrames = buildOrderedSceneFrames(dataIds);
+                    var sceneCount = orderedSceneFrames.size();
+                    modelSerialNoCountDAO.setCount(modelSerialNo, sceneCount);
+                    if (sceneCount == 0) {
+                        log.warn("tracking run has no scene frames. runId {}", modelRunRecord.getRunNo());
+                        return;
+                    }
+
+                    AtomicInteger sendSuccessNum = new AtomicInteger(0);
+                    AtomicInteger insertRecordNum = new AtomicInteger(0);
+                    orderedSceneFrames.forEach((sceneId, frameDataIds) -> {
+                        if (isNotExistModelRunRecord(modelRunRecord)) {
+                            log.error("model {} runId {} is delete.", modelBO.getModelCode(), modelRunRecord.getRunNo());
+                            return;
+                        }
+                        // one pre-insert row per scene; representative dataId = first frame
+                        var representativeDataId = CollUtil.getFirst(frameDataIds);
+                        insertRecordNum.addAndGet(batchSaveModelDatasetMessage(
+                                List.of(DataInfoBO.builder().id(representativeDataId).build()), modelRunRecord));
+                        // one message per scene
+                        this.sendDatasetModelMessageToMQ(buildSceneMessage(modelRunRecord, modelBO, sceneId, frameDataIds));
+                        sendSuccessNum.getAndIncrement();
+                        // keep the progress denominator == scene count (overwrite, R4)
+                        modelSerialNoCountDAO.setCount(modelSerialNo, sceneCount);
+                    });
+                    log.info("model {} runId {} scene insert num {}, send num {}.",
+                            modelBO.getModelCode(), modelRunRecord.getRunNo(), insertRecordNum, sendSuccessNum);
+                } catch (Exception e) {
+                    log.info("model {} runId {} tracking dispatch fail. Exception:{}",
+                            modelBO.getModelCode(), modelRunRecord.getRunNo(), e);
+                }
+            })));
+        } catch (RejectedExecutionException ex) {
+            throw new UsecaseException(UsecaseCode.UNKNOWN,
+                    "The system is busy, please try again later");
+        }
+    }
+
+    /**
+     * Group the selected dataIds by sceneId (parentId) and order each scene's
+     * frames by name ASC, id ASC (mirrors DataInfoMapper selectFirstDataIdBySceneIds).
+     * Returns an insertion-ordered map scene -> ordered frame dataIds.
+     */
+    private LinkedHashMap<Long, List<Long>> buildOrderedSceneFrames(List<Long> dataIds) {
+        var allFrames = new ArrayList<DataInfoBO>(dataIds.size());
+        CollUtil.split(dataIds, 1000).forEach(sub -> allFrames.addAll(dataInfoUseCase.listByIds(sub, true)));
+        // Skip standalone data whose parentId is null — they have no sceneId, which
+        // would produce a null-keyed group that breaks buildSceneMessage and the
+        // trackId format. Log once so the caller knows data was dropped.
+        long skipped = allFrames.stream().filter(f -> ObjectUtil.isNull(f.getParentId())).count();
+        if (skipped > 0) {
+            log.warn("tracking run skipped {} non-scene (parentId=null) data items", skipped);
+        }
+        var grouped = new LinkedHashMap<Long, List<DataInfoBO>>();
+        allFrames.stream()
+                .filter(frame -> ObjectUtil.isNotNull(frame.getParentId()))
+                .forEach(frame -> grouped.computeIfAbsent(frame.getParentId(), k -> new ArrayList<>()).add(frame));
+        var result = new LinkedHashMap<Long, List<Long>>();
+        grouped.forEach((sceneId, frames) -> {
+            frames.sort(Comparator.comparing((DataInfoBO d) -> StrUtil.nullToEmpty(d.getName()))
+                    .thenComparing(DataInfoBO::getId));
+            result.put(sceneId, frames.stream().map(DataInfoBO::getId).collect(Collectors.toList()));
+        });
+        return result;
+    }
+
+    private ModelMessageBO buildSceneMessage(ModelRunRecord modelRunRecord, ModelBO modelBO,
+                                             Long sceneId, List<Long> frameDataIds) {
+        if (ObjectUtil.isNull(sceneId)) {
+            throw new UsecaseException(UsecaseCode.UNKNOWN, "buildSceneMessage: sceneId must not be null");
+        }
+        return ModelMessageBO.builder()
+                .datasetId(modelRunRecord.getDatasetId())
+                .modelId(modelRunRecord.getModelId())
+                .modelVersion(modelRunRecord.getModelVersion())
+                .modelSerialNo(modelRunRecord.getModelSerialNo())
+                .modelCode(modelBO.getModelCode())
+                .createdBy(modelRunRecord.getCreatedBy())
+                .resultFilterParam(JSONUtil.parseObj(modelRunRecord.getResultFilterParam()))
+                .dataId(CollUtil.getFirst(frameDataIds))
+                .sceneId(sceneId)
+                .sceneDataIds(frameDataIds)
+                .url(modelBO.getUrl())
+                .build();
     }
 
     private void checkDatasetType(DatasetTypeEnum datasetType, ModelDatasetTypeEnum modelDatasetType) {
@@ -267,6 +396,11 @@ public class ModelUseCase {
         }
         if (StrUtil.isEmpty(modelBO.getUrl())) {
             throw new UsecaseException(PARAM_ERROR, "Please first configure the model URL.");
+        }
+        // TODO(tracking): support scene-aware re-run for tracking records.
+        if (isTrackingRun(modelBO, JSONUtil.parseObj(modelRunRecord.getResultFilterParam()))) {
+            throw new UsecaseException(PARAM_ERROR,
+                    "Re-run is not yet supported for tracking runs — start a new tracking run instead.");
         }
         boolean updateResult = modelRunRecordDAO.update(ModelRunRecord.builder().build(), Wrappers.lambdaUpdate(ModelRunRecord.class)
                 .set(ModelRunRecord::getDataCount, totalDataNum)

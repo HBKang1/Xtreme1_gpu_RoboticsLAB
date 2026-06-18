@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.util.List;
+
 /**
  * @author fyb
  */
@@ -37,5 +39,19 @@ public class ModelMessageBO {
     private DataInfoBO dataInfo;
 
     private String url;
+
+    /**
+     * Scene (sequence) id for a tracking run. Null for the regular per-frame
+     * detection run. When set, this message represents one whole scene and the
+     * handler dispatches the detection+tracking sequence call for it.
+     */
+    private Long sceneId;
+
+    /**
+     * Ordered (name ASC, id ASC) frame dataIds belonging to {@link #sceneId}.
+     * The frame point cloud urls are fetched in the handler via DB lookup so the
+     * message stays small.
+     */
+    private List<Long> sceneDataIds;
 
 }

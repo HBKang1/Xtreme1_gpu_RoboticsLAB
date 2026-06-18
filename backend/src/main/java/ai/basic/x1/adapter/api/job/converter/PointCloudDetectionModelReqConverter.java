@@ -2,6 +2,8 @@ package ai.basic.x1.adapter.api.job.converter;
 
 import ai.basic.x1.adapter.port.rpc.dto.DataInfo;
 import ai.basic.x1.adapter.port.rpc.dto.PointCloudDetectionReqDTO;
+import ai.basic.x1.adapter.port.rpc.dto.PointCloudSequenceReqDTO;
+import ai.basic.x1.adapter.port.rpc.dto.PointCloudSequenceRespDTO;
 import ai.basic.x1.entity.DataInfoBO;
 import ai.basic.x1.entity.FileBO;
 import ai.basic.x1.entity.ModelMessageBO;
@@ -26,6 +28,48 @@ public class PointCloudDetectionModelReqConverter {
         DataInfo dataInfo = buildDataInfo(messageBo.getDataInfo());
         return PointCloudDetectionReqDTO.builder()
                 .datas(Arrays.asList(dataInfo))
+                .build();
+    }
+
+    /**
+     * Build the {@code /pointCloud/sequence} request for one chunk of ordered
+     * frames. Each frame's pointCloudUrl is extracted from its DataInfoBO
+     * content (same traversal as the detection path). {@code seedObjects} carry
+     * the previous chunk's active tracks for trackId continuity; null/empty for
+     * the first chunk. Detection is truth -> keep z/rotation default false.
+     *
+     * @param orderedFrames frames in (name ASC, id ASC) order
+     * @param seedTrackStates previous chunk's trackStates, or null for chunk 0
+     */
+    public static PointCloudSequenceReqDTO buildSequenceRequestParam(List<DataInfoBO> orderedFrames,
+                                                                     List<PointCloudSequenceRespDTO.TrackState> seedTrackStates) {
+        var frames = new ArrayList<PointCloudSequenceReqDTO.Frame>(CollUtil.isNotEmpty(orderedFrames) ? orderedFrames.size() : 0);
+        if (CollUtil.isNotEmpty(orderedFrames)) {
+            orderedFrames.forEach(frame -> {
+                var dataInfo = buildDataInfo(frame);
+                var pointCloudUrl = ObjectUtil.isNotNull(dataInfo) ? dataInfo.getPointCloudUrl() : null;
+                frames.add(PointCloudSequenceReqDTO.Frame.builder()
+                        .id(frame.getId())
+                        .pointCloudUrl(pointCloudUrl)
+                        .build());
+            });
+        }
+        var seedObjects = new ArrayList<PointCloudSequenceReqDTO.SeedObject>();
+        if (CollUtil.isNotEmpty(seedTrackStates)) {
+            seedTrackStates.forEach(state -> seedObjects.add(PointCloudSequenceReqDTO.SeedObject.builder()
+                    .trackingId(state.getTrackingId())
+                    .label(state.getLabel())
+                    .confidence(state.getConfidence())
+                    .x(state.getX()).y(state.getY()).z(state.getZ())
+                    .dx(state.getDx()).dy(state.getDy()).dz(state.getDz())
+                    .rotZ(state.getRotZ())
+                    .prevX(state.getPrevX()).prevY(state.getPrevY()).prevZ(state.getPrevZ())
+                    .build()));
+        }
+        return PointCloudSequenceReqDTO.builder()
+                .frames(frames)
+                .seedObjects(seedObjects)
+                .keep(PointCloudSequenceReqDTO.Keep.builder().z(false).rotation(false).build())
                 .build();
     }
 

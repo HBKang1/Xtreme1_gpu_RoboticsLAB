@@ -164,6 +164,14 @@ public abstract class AbstractModelMessageHandler<T> {
             if (isNotExistModelRunRecord(modelMessageBO)) {
                 return true;
             }
+            // Per-scene tracking run: one message == one whole scene. The scene
+            // handler MUST self-finalize (S0.3: Redis has no auto-redelivery, so
+            // returning false / throwing strands the message in the PEL forever
+            // and the run hangs RUNNING). handleSceneModelRun therefore always
+            // returns true and marks failures internally.
+            if (ObjectUtil.isNotNull(modelMessageBO.getSceneId())) {
+                return handleSceneModelRun(modelMessageBO);
+            }
             var modelResult = modelRun(modelMessageBO);
             if (UsecaseCode.OK.getCode().equals(modelResult.getCode())) {
                 syncModelAnnotationResult(modelResult, modelMessageBO);
@@ -177,6 +185,57 @@ public abstract class AbstractModelMessageHandler<T> {
         } catch (Exception e) {
             log.error("{} handleDatasetModelRun exception: {}", getModelCodeEnum(), e);
             return false;
+        }
+    }
+
+    /**
+     * Handle one per-scene tracking message. Overridden by handlers that support
+     * a tracking run mode. Default = treat as an unsupported failure but STILL
+     * self-finalize (mark the scene failed + advance progress + return true) so
+     * the run terminates instead of hanging RUNNING (S0.3).
+     */
+    protected boolean handleSceneModelRun(ModelMessageBO modelMessageBO) {
+        log.error("{} does not support tracking run mode, finalizing scene {} as failure",
+                getModelCodeEnum(), modelMessageBO.getSceneId());
+        finalizeSceneFailure(modelMessageBO, "tracking run mode is not supported by this model");
+        return true;
+    }
+
+    /**
+     * Mark the scene's (representative) model_dataset_result row a success and
+     * advance the per-scene progress counter. The {@code .isNull(model_result)}
+     * guard is retained inside saveToModelDatasetResult for redelivery idempotency.
+     */
+    protected void finalizeSceneSuccess(ModelMessageBO modelMessageBO) {
+        var modelResult = PointCloudDetectionObjectBO.builder()
+                .dataId(modelMessageBO.getDataId())
+                .code(UsecaseCode.OK.getCode())
+                .build();
+        if (saveToModelDatasetResult(modelMessageBO, modelResult)) {
+            updateProgress(modelMessageBO);
+        } else {
+            log.warn("scene already finalized (idempotent), skip progress. modelMessageBO {}",
+                    JSONUtil.toJsonStr(modelMessageBO));
+        }
+    }
+
+    /**
+     * Mark the scene's (representative) model_dataset_result row a failure and
+     * advance the per-scene progress counter so the run finalizes as
+     * SUCCESS_WITH_ERROR (or FAILURE if every scene failed). Self-finalize is
+     * mandatory under single-delivery semantics (S0.3 / R7).
+     */
+    protected void finalizeSceneFailure(ModelMessageBO modelMessageBO, String errorMessage) {
+        var modelResult = PointCloudDetectionObjectBO.builder()
+                .dataId(modelMessageBO.getDataId())
+                .code(UsecaseCode.ERROR.getCode())
+                .message(errorMessage)
+                .build();
+        if (saveToModelDatasetResult(modelMessageBO, modelResult)) {
+            updateProgress(modelMessageBO);
+        } else {
+            log.warn("scene already finalized (idempotent), skip progress. modelMessageBO {}",
+                    JSONUtil.toJsonStr(modelMessageBO));
         }
     }
 

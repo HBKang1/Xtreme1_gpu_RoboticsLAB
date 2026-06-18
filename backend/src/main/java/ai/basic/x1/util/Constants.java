@@ -194,4 +194,25 @@ public interface Constants {
     String MODEL_RUN_RESULT_DATA_CODE = "data.code";
 
     String MODEL_RUN_RESULT_OBJECTS = "objects";
+
+    /**
+     * Free key inside resultFilterParam selecting the per-scene detection+
+     * tracking run mode. Absent / any other value = the regular per-frame
+     * detection run (unchanged). See Layer 2 / D6.
+     */
+    String MODEL_RUN_MODE_KEY = "runMode";
+    String MODEL_RUN_MODE_TRACKING = "TRACKING";
+
+    /**
+     * Default frame chunk size for a tracking scene call (S0.2 / D2:
+     * ~0.5s/frame -> ~25s/chunk, well under the 120s sequence timeout).
+     */
+    int TRACKING_CHUNK_SIZE = 50;
+
+    /**
+     * Detection-driven sequence endpoint path; derived from the model url base
+     * by replacing the recognition path.
+     */
+    String MODEL_RECOGNITION_PATH = "/pointCloud/recognition";
+    String MODEL_SEQUENCE_PATH = "/pointCloud/sequence";
 }

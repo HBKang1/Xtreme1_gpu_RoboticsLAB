@@ -99,15 +99,15 @@ public class ModelResultConverter {
         return matchClassResult && matchMinConfidence && matchMaxConfidence;
     }
 
-    private static PointBO buildCenter3D(PointCloudDetectionObject labelInfo) {
+    public static PointBO buildCenter3D(PointCloudDetectionObject labelInfo) {
         return PointBO.builder().x(labelInfo.getX()).y(labelInfo.getY()).z(labelInfo.getZ()).build();
     }
 
-    private static PointBO buildRotation3D(PointCloudDetectionObject labelInfo) {
+    public static PointBO buildRotation3D(PointCloudDetectionObject labelInfo) {
         return PointBO.builder().x(labelInfo.getRotX()).y(labelInfo.getRotY()).z(labelInfo.getRotZ()).build();
     }
 
-    private static PointBO buildSize3D(PointCloudDetectionObject labelInfo) {
+    public static PointBO buildSize3D(PointCloudDetectionObject labelInfo) {
         return PointBO.builder().x(labelInfo.getDx()).y(labelInfo.getDy()).z(labelInfo.getDz()).build();
     }
 }

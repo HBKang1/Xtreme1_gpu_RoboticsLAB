@@ -77,7 +77,7 @@
             {{ t('business.models.runModel.FliterModel') }}
           </Checkbox>
         </Form.Item>
-        <Form.Item>
+        <Form.Item v-if="isLidar">
           <Checkbox v-model:checked="formState.trackingMode">
             {{ t('business.models.runModel.tracking') }}
           </Checkbox>
@@ -264,6 +264,12 @@
 
   // 类型
   const datasetType = ref<datasetTypeEnum>(datasetTypeEnum.LIDAR_BASIC);
+  // tracking is only meaningful for LIDAR sequence (scene) data -> gate the toggle
+  const isLidar = computed(() =>
+    [datasetTypeEnum.LIDAR, datasetTypeEnum.LIDAR_BASIC, datasetTypeEnum.LIDAR_FUSION].includes(
+      datasetType.value,
+    ),
+  );
   // 当前获取到的处理之后的 classes
   let classes = reactive<any[]>([]);
   // 获取 Classes

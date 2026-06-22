@@ -76,42 +76,41 @@ def _parse_pcd_stream(f, label: str):
     False so the loop can mirror serving's "filter only when the cloud has an
     intensity column" guard (deploy app.py:62 `pc.shape[1] >= 4`).
     """
-    if True:
-        path = label
-        header = {}
-        while True:
-            line = f.readline().decode('ascii', errors='ignore').strip()
-            if not line or line.startswith('#'):
-                continue
-            key, _, value = line.partition(' ')
-            header[key.upper()] = value
-            if key.upper() == 'DATA':
-                break
-        fields = header['FIELDS'].split()
-        sizes = list(map(int, header['SIZE'].split()))
-        types = header['TYPE'].split()
-        counts = list(map(int, header.get('COUNT', ' '.join(['1'] * len(fields))).split()))
-        n_points = int(header['POINTS'])
-        data_fmt = header['DATA']
+    path = label
+    header = {}
+    while True:
+        line = f.readline().decode('ascii', errors='ignore').strip()
+        if not line or line.startswith('#'):
+            continue
+        key, _, value = line.partition(' ')
+        header[key.upper()] = value
+        if key.upper() == 'DATA':
+            break
+    fields = header['FIELDS'].split()
+    sizes = list(map(int, header['SIZE'].split()))
+    types = header['TYPE'].split()
+    counts = list(map(int, header.get('COUNT', ' '.join(['1'] * len(fields))).split()))
+    n_points = int(header['POINTS'])
+    data_fmt = header['DATA']
 
-        dtype_fields = []
-        for name, size, typ, cnt in zip(fields, sizes, types, counts):
-            base = PCD_TYPE_MAP.get((typ, size))
-            if base is None:
-                raise ValueError(f'{path}: unsupported pcd field {name} {typ}{size}')
-            for i in range(cnt):
-                dtype_fields.append((f'{name}_{i}' if cnt > 1 else name, base))
-        dtype = np.dtype(dtype_fields)
+    dtype_fields = []
+    for name, size, typ, cnt in zip(fields, sizes, types, counts):
+        base = PCD_TYPE_MAP.get((typ, size))
+        if base is None:
+            raise ValueError(f'{path}: unsupported pcd field {name} {typ}{size}')
+        for i in range(cnt):
+            dtype_fields.append((f'{name}_{i}' if cnt > 1 else name, base))
+    dtype = np.dtype(dtype_fields)
 
-        if data_fmt == 'binary':
-            raw = np.frombuffer(f.read(dtype.itemsize * n_points), dtype=dtype, count=n_points)
-        elif data_fmt == 'ascii':
-            raw = np.loadtxt(f, dtype=np.float64, max_rows=n_points)
-            raw = np.core.records.fromarrays(raw.T, dtype=np.dtype(
-                [(n, 'f8') for n, _ in dtype_fields]))
-        else:
-            raise ValueError(f'{path}: DATA {data_fmt} not supported (binary_compressed: '
-                             f'convert with pypcd/open3d first)')
+    if data_fmt == 'binary':
+        raw = np.frombuffer(f.read(dtype.itemsize * n_points), dtype=dtype, count=n_points)
+    elif data_fmt == 'ascii':
+        raw = np.loadtxt(f, dtype=np.float64, max_rows=n_points)
+        raw = np.core.records.fromarrays(raw.T, dtype=np.dtype(
+            [(n, 'f8') for n, _ in dtype_fields]))
+    else:
+        raise ValueError(f'{path}: DATA {data_fmt} not supported (binary_compressed: '
+                         f'convert with pypcd/open3d first)')
 
     out = np.zeros((n_points, 4), dtype=np.float32)
     for i, axis in enumerate(('x', 'y', 'z')):

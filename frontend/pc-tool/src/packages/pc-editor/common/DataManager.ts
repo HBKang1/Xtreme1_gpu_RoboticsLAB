@@ -405,7 +405,6 @@ export default class DataManager {
     async runModelTrack(
         curId: string,
         toIds: string[],
-        direction: 'BACKWARD' | 'FORWARD',
         targetObjects: any[],
         trackIdName: Record<string, string>,
         onComplete?: () => void,
@@ -566,86 +565,68 @@ export default class DataManager {
                 t.lastPos.clone().add(t.vel),
             );
 
-            if (dangling.length > 0 && activeTracks.length > 0) {
-                // greedy 1:1 by BEV distance, same classType, within growing gate
-                interface IPair {
-                    dist: number;
-                    ti: number; // active track index
-                    di: number; // dangling box index
-                }
-                let pairs: IPair[] = [];
-                activeTracks.forEach((track, ti) => {
-                    let gate = gateFor(track.miss);
-                    let pred = predicted[ti];
-                    dangling.forEach((box, di) => {
-                        if ((box.userData as IUserData).classType !== track.classType)
-                            return;
-                        let dist = Math.hypot(
-                            pred.x - box.position.x,
-                            pred.y - box.position.y,
-                        );
-                        if (dist <= gate) pairs.push({ dist, ti, di });
-                    });
-                });
-                pairs.sort((a, b) => a.dist - b.dist);
-
-                let usedTrack: Record<number, boolean> = {};
-                let usedBox: Record<number, boolean> = {};
-                pairs.forEach(({ ti, di }) => {
-                    if (usedTrack[ti] || usedBox[di]) return;
-                    usedTrack[ti] = true;
-                    usedBox[di] = true;
-                    let track = activeTracks[ti];
-                    let box = dangling[di];
-                    queueRelabel(box, track.trackId, track.trackName);
-                    let newPos = new THREE.Vector2(box.position.x, box.position.y);
-                    track.vel = newPos.clone().sub(track.lastPos);
-                    track.lastPos = newPos;
-                    track.miss = 0;
-                });
-
-                // unmatched active tracks accrue a miss; deactivate after >K misses
-                activeTracks.forEach((track, ti) => {
-                    if (usedTrack[ti]) return;
-                    track.miss += 1;
-                    track.lastPos = predicted[ti];
-                    if (track.miss > K) track.dead = true;
-                });
-
-                // unmatched dangling boxes seed new tracks (own existing id)
-                dangling.forEach((box, di) => {
-                    if (usedBox[di]) return;
-                    let userData = box.userData as IUserData;
-                    activeTracks.push({
-                        trackId: userData.trackId || '',
-                        trackName: userData.trackName || '',
-                        classType: userData.classType || '',
-                        lastPos: new THREE.Vector2(box.position.x, box.position.y),
-                        vel: new THREE.Vector2(0, 0),
-                        miss: 0,
-                        dead: false,
-                    });
-                });
-            } else {
-                // no matching possible this frame: age active tracks, seed any dangling
-                activeTracks.forEach((track, ti) => {
-                    track.miss += 1;
-                    track.lastPos = predicted[ti];
-                    if (track.miss > K) track.dead = true;
-                });
-                dangling.forEach((box) => {
-                    let userData = box.userData as IUserData;
-                    activeTracks.push({
-                        trackId: userData.trackId || '',
-                        trackName: userData.trackName || '',
-                        classType: userData.classType || '',
-                        lastPos: new THREE.Vector2(box.position.x, box.position.y),
-                        vel: new THREE.Vector2(0, 0),
-                        miss: 0,
-                        dead: false,
-                    });
-                });
+            // greedy 1:1 by BEV distance, same classType, within growing gate.
+            // empty cases need no special branch: no active tracks -> pairs is
+            // empty; no dangling -> nothing matches or seeds. Both fall through
+            // the age/seed loops below with the correct no-op result.
+            interface IPair {
+                dist: number;
+                ti: number; // active track index
+                di: number; // dangling box index
             }
+            let pairs: IPair[] = [];
+            activeTracks.forEach((track, ti) => {
+                let gate = gateFor(track.miss);
+                let pred = predicted[ti];
+                dangling.forEach((box, di) => {
+                    if ((box.userData as IUserData).classType !== track.classType)
+                        return;
+                    let dist = Math.hypot(
+                        pred.x - box.position.x,
+                        pred.y - box.position.y,
+                    );
+                    if (dist <= gate) pairs.push({ dist, ti, di });
+                });
+            });
+            pairs.sort((a, b) => a.dist - b.dist);
+
+            let usedTrack: Record<number, boolean> = {};
+            let usedBox: Record<number, boolean> = {};
+            pairs.forEach(({ ti, di }) => {
+                if (usedTrack[ti] || usedBox[di]) return;
+                usedTrack[ti] = true;
+                usedBox[di] = true;
+                let track = activeTracks[ti];
+                let box = dangling[di];
+                queueRelabel(box, track.trackId, track.trackName);
+                let newPos = new THREE.Vector2(box.position.x, box.position.y);
+                track.vel = newPos.clone().sub(track.lastPos);
+                track.lastPos = newPos;
+                track.miss = 0;
+            });
+
+            // unmatched active tracks accrue a miss; deactivate after >K misses
+            activeTracks.forEach((track, ti) => {
+                if (usedTrack[ti]) return;
+                track.miss += 1;
+                track.lastPos = predicted[ti];
+                if (track.miss > K) track.dead = true;
+            });
+
+            // unmatched dangling boxes seed new tracks (own existing id)
+            dangling.forEach((box, di) => {
+                if (usedBox[di]) return;
+                let userData = box.userData as IUserData;
+                activeTracks.push({
+                    trackId: userData.trackId || '',
+                    trackName: userData.trackName || '',
+                    classType: userData.classType || '',
+                    lastPos: new THREE.Vector2(box.position.x, box.position.y),
+                    vel: new THREE.Vector2(0, 0),
+                    miss: 0,
+                    dead: false,
+                });
+            });
 
             activeTracks = activeTracks.filter((t) => !t.dead);
         });
@@ -845,7 +826,7 @@ export default class DataManager {
             }
         });
 
-        await this.runModelTrack(curId, toIds, direction as any, targetObjects, trackIdName, () => {
+        await this.runModelTrack(curId, toIds, targetObjects, trackIdName, () => {
             this.gotoNext(toIds[0]);
         });
     }

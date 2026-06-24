@@ -472,7 +472,7 @@ class ObjectBox {
 
   box3dFromSubpc(
     subpc,
-    { headAngle = null, minDistance = 0.5, roadGap = 0.1, minFilterPoints = 100, groundPlane = null },
+    { headAngle = null, minDistance = 0.5, roadGap = 0.1, minFilterPoints = 100, groundPlane = null } = {},
   ) {
     // 从子点云中得到带方向的3d框
     //

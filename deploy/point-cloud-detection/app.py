@@ -288,7 +288,7 @@ class AppHandler(BaseApiHandler):
         class_names = self.predictor.class_names
         objects = [
             {
-                "label": class_names[label-1].upper(),
+                "label": name,
                 "confidence": score,
 
                 "x": box[0],
@@ -302,14 +302,17 @@ class AppHandler(BaseApiHandler):
                 "rotZ": box[6],
                 # rule-validation flags (curl-verifiable; stripped by the Java
                 # converter before reaching the frontend -- see VALID_SIZE note)
-                "bad_size": _bad_size(class_names[label-1].upper(),
-                                      box[3], box[4], box[5]),
+                "bad_size": _bad_size(name, box[3], box[4], box[5]),
                 "overlap": False,
             }
             for box, score, label in zip(
                 results['pred_boxes'].astype(np.float64).round(3).tolist(),
                 results['pred_scores'].astype(np.float64).round(3).tolist(),
                 results['pred_labels'].tolist())
+            # resolve class name once; guard out-of-range labels (1-based) so a
+            # stray label==0 can't silently index [-1] (wrong class).
+            for name in (class_names[label-1].upper()
+                         if 1 <= label <= len(class_names) else None,)
         ]
         _mark_overlaps(objects)
 

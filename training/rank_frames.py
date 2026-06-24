@@ -181,7 +181,11 @@ def score_all_frames(
         track_deltas: list[float] = []
         track_seen: dict[str, tuple] = {}
         for box in boxes:
-            track_id = box.get("trackId")
+            # serving (recognition response) emits `trackingId`; GT exports use
+            # `trackId` -- accept either so instability isn't silently always 0.
+            track_id = box.get("trackingId")
+            if track_id is None:
+                track_id = box.get("trackId")
             if track_id is None:
                 continue
             try:

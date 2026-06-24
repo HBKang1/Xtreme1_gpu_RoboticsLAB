@@ -131,6 +131,16 @@ function getConfidence(box: IValidatableBox): number | undefined {
     return box.userData?.confidence;
 }
 
+/**
+ * A box is a propagated tracking fallback when its confidence equals the sentinel
+ * TRACK_FALLBACK_CONFIDENCE. Compare with a tolerance, not `===`: the value can
+ * round-trip through JSON/DB and arrive as 0.0999… , which `===` would miss.
+ */
+function isFallback(box: IValidatableBox): boolean {
+    const c = getConfidence(box);
+    return c !== undefined && Math.abs(c - TRACK_FALLBACK_CONFIDENCE) < 1e-6;
+}
+
 /** Project the 4 BEV corners of a box (x, y, dx, dy, heading) to world XY. */
 function bevCorners(g: IBoxGeom): Array<[number, number]> {
     const cos = Math.cos(g.heading);
@@ -282,8 +292,7 @@ export function evaluateViolations(
     const result: IViolations = { badSize: false, overlap: false };
 
     // size rule
-    const isFallback = getConfidence(box) === TRACK_FALLBACK_CONFIDENCE;
-    if (!isFallback) {
+    if (!isFallback(box)) {
         const env = VALID_SIZE[getClassName(box)];
         if (env) {
             result.badSize =
@@ -316,7 +325,7 @@ export function evaluateViolations(
  *   suspicious = fallback (confidence == 0.1) OR badSize OR overlap.
  */
 export function isSuspicious(box: IValidatableBox, sameFrameBoxes: IValidatableBox[] = []): boolean {
-    if (getConfidence(box) === TRACK_FALLBACK_CONFIDENCE) return true;
+    if (isFallback(box)) return true;
     const v = evaluateViolations(box, sameFrameBoxes);
     return v.badSize || v.overlap;
 }

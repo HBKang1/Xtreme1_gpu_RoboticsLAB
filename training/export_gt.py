@@ -256,7 +256,7 @@ def sanitize(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z_.-]+", "_", name)
 
 
-def filter_zip_by_frame_ids(src: Path, dest: Path, frame_ids: set[str]) -> int:
+def filter_zip_by_frame_ids(src: Path, dest: Path, frame_ids: set[str]) -> set[str]:
     """Repack *src* zip into *dest* keeping only entries whose stem is in *frame_ids*.
 
     The Xtreme1 export zip places per-frame GT annotations under result/<stem>.json
@@ -264,9 +264,10 @@ def filter_zip_by_frame_ids(src: Path, dest: Path, frame_ids: set[str]) -> int:
       - It lives under result/ or data/ and its file stem is in *frame_ids*, OR
       - It is not a per-frame entry (top-level files, directory entries, manifest).
 
-    Returns the number of result/*.json entries kept.
+    Returns the set of result/*.json stems kept (lets the caller detect a
+    frame-ID space mismatch and report top-K IDs that matched nothing).
     """
-    kept_results = 0
+    kept_results: set[str] = set()
     with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zout:
         for info in zin.infolist():
             parts = Path(info.filename).parts
@@ -276,7 +277,7 @@ def filter_zip_by_frame_ids(src: Path, dest: Path, frame_ids: set[str]) -> int:
                 if stem not in frame_ids:
                     continue
                 if parts[0] == "result" and not info.is_dir():
-                    kept_results += 1
+                    kept_results.add(stem)
             # Non-per-frame entry (manifest, top-level dirs, etc.): always keep
             zout.writestr(info, zin.read(info.filename))
     return kept_results
@@ -460,6 +461,10 @@ def main() -> None:
     # --- export & download ---
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
+    # union of result stems kept across all units (top-K mode); used to detect a
+    # frame-ID space mismatch (kept 0) and warn on top-K IDs never found.
+    all_kept_stems: set[str] = set()
+
     def export_unit(label: str, ds_id: int, parent_id: int | None, out_path: Path) -> int:
         """Export+download one unit (flat dataset or one scene). Returns frame count.
 
@@ -480,15 +485,15 @@ def main() -> None:
         if top_k_frame_ids is not None:
             # Repack the zip keeping only top-K frame entries
             filtered_path = out_path.with_suffix(".topk.zip")
-            kept = filter_zip_by_frame_ids(out_path, filtered_path, top_k_frame_ids)
-            out_path.unlink()
-            filtered_path.rename(out_path)
+            kept_stems = filter_zip_by_frame_ids(out_path, filtered_path, top_k_frame_ids)
+            all_kept_stems.update(kept_stems)
+            os.replace(filtered_path, out_path)  # atomic; no window with the original gone
             print(
-                f"[{label}] top-K filter: kept {kept}/{total_num} GT frames  "
+                f"[{label}] top-K filter: kept {len(kept_stems)}/{total_num} GT frames  "
                 f"{out_path.stat().st_size / (1 << 20):.1f} MiB → {out_path}",
                 flush=True,
             )
-            return kept
+            return len(kept_stems)
 
         print(f"[{label}] OK  {total_num} frames  {size_mb:.1f} MiB → {out_path}", flush=True)
         return total_num
@@ -513,7 +518,9 @@ def main() -> None:
                     out_path = (args.out_dir / f"{slug}.zip" if len(scene_ids) == 1
                                 else args.out_dir / f"{slug}__scene{sid}.zip")
                     got += export_unit(f"{ds_name}#scene{sid}", ds_id, sid, out_path)
-            if got != expected:
+            # In top-K mode `got` is the (smaller) kept count, not annotatedCount,
+            # so this comparison only makes sense for a full export.
+            if top_k_frame_ids is None and got != expected:
                 print(
                     f"warning [{ds_name}]: expected {expected} ANNOTATED frames, "
                     f"export produced {got}",
@@ -530,6 +537,23 @@ def main() -> None:
         for name, err in failures:
             print(f"  {name}: {err}")
         sys.exit(1)
+
+    # top-K sanity: fail loud rather than silently shipping an empty/partial set.
+    if top_k_frame_ids is not None:
+        if not all_kept_stems:
+            print(
+                f"ERROR: top-K filter kept 0/{len(top_k_frame_ids)} frames across all "
+                f"exports -- frame-ID space mismatch (prediction dataId vs export stem)?",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        missing = top_k_frame_ids - all_kept_stems
+        if missing:
+            print(
+                f"warning: {len(missing)}/{len(top_k_frame_ids)} top-K frame IDs not "
+                f"found in any export: {sorted(missing)[:10]}",
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":

@@ -256,6 +256,32 @@ def sanitize(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z_.-]+", "_", name)
 
 
+def filter_zip_by_frame_ids(src: Path, dest: Path, frame_ids: set[str]) -> int:
+    """Repack *src* zip into *dest* keeping only entries whose stem is in *frame_ids*.
+
+    The Xtreme1 export zip places per-frame GT annotations under result/<stem>.json
+    and raw data under data/<stem>.json.  An entry is kept when:
+      - It lives under result/ or data/ and its file stem is in *frame_ids*, OR
+      - It is not a per-frame entry (top-level files, directory entries, manifest).
+
+    Returns the number of result/*.json entries kept.
+    """
+    kept_results = 0
+    with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            parts = Path(info.filename).parts
+            if len(parts) >= 2 and parts[0] in ("result", "data"):
+                # Per-frame entry: keep only if its stem matches a top-K frame ID
+                stem = Path(parts[-1]).stem
+                if stem not in frame_ids:
+                    continue
+                if parts[0] == "result" and not info.is_dir():
+                    kept_results += 1
+            # Non-per-frame entry (manifest, top-level dirs, etc.): always keep
+            zout.writestr(info, zin.read(info.filename))
+    return kept_results
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -311,7 +337,65 @@ def main() -> None:
         default=DEFAULT_POLL_INTERVAL,
         help=f"Polling interval in seconds (default {DEFAULT_POLL_INTERVAL})",
     )
+    ap.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        metavar="K",
+        help=(
+            "When set, run rank_frames.py's scorer on --predictions and restrict "
+            "the export to the top-K most uncertain frame IDs.  "
+            "Requires --predictions to point at a directory of per-frame "
+            "prediction JSON (recognition response shape).  "
+            "selectModelRunIds stays -1 (GT export); only the frame set is filtered."
+        ),
+    )
+    ap.add_argument(
+        "--predictions",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Directory of per-frame prediction JSON files used by --top-k to "
+            "score and rank frames before the GT export.  Required when --top-k is set."
+        ),
+    )
+    ap.add_argument(
+        "--rank-model-id",
+        default="unknown",
+        metavar="MODEL_ID",
+        help="Model identifier recorded in the ranking artifact (used with --top-k).",
+    )
     args = ap.parse_args()
+
+    # --- frame ranking (active-learning top-K filter) ---
+    # When --top-k is set, run rank_frames.py's scorer on the supplied prediction
+    # directory and restrict the GT export to only those K frame IDs.
+    # selectModelRunIds stays -1 (GT export); only the frame set is filtered.
+    top_k_frame_ids: set[str] | None = None
+    if args.top_k is not None:
+        if args.predictions is None:
+            sys.exit("error: --top-k requires --predictions <dir> (prediction JSON directory)")
+        if not args.predictions.is_dir():
+            sys.exit(f"error: --predictions must be a directory: {args.predictions}")
+        # Import the scorer from the sibling module (same training/ directory)
+        sys.path.insert(0, str(Path(__file__).parent))
+        from rank_frames import rank_frames as _rank_frames  # noqa: PLC0415
+        print(
+            f"Ranking frames by uncertainty (top-{args.top_k}) "
+            f"from predictions: {args.predictions} …",
+            flush=True,
+        )
+        ranked_ids, artifact_path = _rank_frames(
+            pred_dir=args.predictions,
+            top_k=args.top_k,
+            model_id=args.rank_model_id,
+        )
+        top_k_frame_ids = set(ranked_ids[: args.top_k])
+        print(
+            f"Top-{args.top_k} frame IDs selected; ranking artifact: {artifact_path}",
+            flush=True,
+        )
 
     # --- authentication ---
     if args.token:
@@ -377,7 +461,11 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     def export_unit(label: str, ds_id: int, parent_id: int | None, out_path: Path) -> int:
-        """Export+download one unit (flat dataset or one scene). Returns frame count."""
+        """Export+download one unit (flat dataset or one scene). Returns frame count.
+
+        When top_k_frame_ids is set, the downloaded zip is repacked in-place to
+        contain only the frames in that set; selectModelRunIds stays -1 (GT export).
+        """
         sn = start_export(sess, args.base_url, ds_id, parent_id=parent_id)
         print(f"[{label}] serialNumber={sn}", flush=True)
         rec = poll_export(sess, args.base_url, sn, args.timeout, args.poll_interval, label)
@@ -388,6 +476,20 @@ def main() -> None:
         download_zip(sess, args.base_url, file_path, out_path)
         total_num = rec.get("totalNum") or 0
         size_mb = out_path.stat().st_size / (1 << 20)
+
+        if top_k_frame_ids is not None:
+            # Repack the zip keeping only top-K frame entries
+            filtered_path = out_path.with_suffix(".topk.zip")
+            kept = filter_zip_by_frame_ids(out_path, filtered_path, top_k_frame_ids)
+            out_path.unlink()
+            filtered_path.rename(out_path)
+            print(
+                f"[{label}] top-K filter: kept {kept}/{total_num} GT frames  "
+                f"{out_path.stat().st_size / (1 << 20):.1f} MiB → {out_path}",
+                flush=True,
+            )
+            return kept
+
         print(f"[{label}] OK  {total_num} frames  {size_mb:.1f} MiB → {out_path}", flush=True)
         return total_num
 

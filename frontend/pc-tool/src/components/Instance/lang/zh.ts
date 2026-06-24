@@ -3,6 +3,7 @@ import { ILocale } from './type';
 const zh: ILocale = {
     'track-object-title': '结果列表({{n}})',
     'title-show-attr': '结果属性展示',
+    'title-suspicious-only': '仅显示可疑框（回退 / 尺寸异常 / 重叠）',
     'header-Operation': '批量操作',
     'header-remove-all': '删除所有',
     'title-hide': '隐藏',

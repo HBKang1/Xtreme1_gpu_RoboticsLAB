@@ -14,6 +14,12 @@ export interface IItem {
     hasAnnotation?: boolean;
     invisible?: boolean;
     active: string[];
+    // #1 Confidence Review Queue: model confidence + client-side suspicious predicate.
+    // undefined confidence sorts last (treated as no model signal).
+    confidence?: number;
+    suspicious?: boolean;
+    // #1: hidden by the "suspicious-only" panel filter (true => not rendered).
+    filtered?: boolean;
 }
 
 export interface IClass {
@@ -26,6 +32,8 @@ export interface IClass {
     color: string;
     // bgColor: string;
     visible: boolean;
+    // #1: collapsed by the "suspicious-only" panel filter (no suspicious track inside).
+    filtered?: boolean;
     // active: string[];
 }
 
@@ -53,6 +61,9 @@ export interface IState {
     globalClassifyMap: Record<string, IClassify>;
     globalClassMap: Record<string, IClass>;
     expandAll: boolean;
+    // #1 Confidence Review Queue: panel-local "suspicious-only" filter.
+    // Display state only — no persisted reviewed-state (spec: #1 stores nothing).
+    showSuspiciousOnly: boolean;
     // noClassList: IInstanceList;
 }
 

@@ -87,6 +87,26 @@ const en = {
     warnObjectRepeat: 'Cannot merge: both tracks have a box in the same frame',
     warnClassTypeDiff: 'Cannot merge: the two tracks have different classes',
     warnEmptyObject: 'Nothing to split at this frame',
+    // #3 ground toggle
+    hideGround: 'Hide ground (RANSAC)',
+    groundFitFailed: 'No ground plane found — ground left visible',
+    // #4 keyframe interpolation
+    menuSetKeyframe: 'Set interpolation keyframe (A then B)',
+    keyframeASet: 'Keyframe A set at frame {{a}}',
+    keyframeBSet: 'Keyframes set: A={{a}}, B={{b}}',
+    keyframeSetHint: 'Keyframes A={{a}}, B={{b}} — click to reset',
+    keyframeSameHint: 'Pick a different frame for keyframe B',
+    menuInterpolate: 'Interpolate empty/fallback frames between keyframes',
+    interpolateNoKeyframeHint: 'Set keyframes A and B first',
+    interpolateNoEndpoint: 'Both keyframes must contain a box for this track',
+    interpolateNothing: 'No empty or fallback frames to fill between keyframes',
+    interpolateTrackMismatch: 'Keyframes were set on a different track — please set them again',
+    interpolateDone: 'Frames interpolated',
+    // #5 unify dimensions
+    menuUnifyDimensions: 'Unify track size to median (rigid classes)',
+    unifyNotRigid: 'Dimension lock applies to rigid classes only (not Pedestrian)',
+    unifyTooShort: 'Track too short to unify (needs 2+ frames)',
+    unifyDone: 'Track dimensions unified to median',
 };
 
 export type ILocale = typeof en;

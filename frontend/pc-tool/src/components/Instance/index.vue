@@ -10,7 +10,12 @@
         >
             <a-collapse-panel :showArrow="false" :key="classify.key">
                 <template #header>
-                    <Header @toggle-attr="onToggleAttr" :data="classify" />
+                    <Header
+                        @toggle-attr="onToggleAttr"
+                        @toggle-suspicious="onToggleSuspiciousOnly"
+                        :suspicious-only="state.showSuspiciousOnly"
+                        :data="classify"
+                    />
                 </template>
                 <div class="operation-instance">
                     <div style="height: 100%; overflow-y: auto">
@@ -23,24 +28,27 @@
                             <template #expandIcon="{ isActive }">
                                 <CaretRightOutlined :rotate="isActive ? 90 : 0" />
                             </template>
-                            <a-collapse-panel v-for="item in classify.data" :key="item.key">
+                            <template v-for="item in classify.data" :key="item.key">
+                              <a-collapse-panel v-if="!item.filtered" :key="item.key">
                                 <div class="list">
                                     <!-- track -->
-                                    <TrackItem
-                                        v-for="subItem in item.data"
-                                        @item-tool="onItemTool"
-                                        @track-tool="onTrackTool"
-                                        :data="subItem"
-                                        :state="state"
-                                        :select-map="state.selectMap"
-                                        :track="state.trackId"
-                                        :title-edit="$$('title-edit')"
-                                        :title-delete="$$('title-delete')"
-                                        :title-hide="$$('title-hide')"
-                                        :title-show="$$('title-show')"
-                                        :title-annotation="$$('title-annotation')"
-                                        :title-invisible="$$('title-invisible')"
-                                    />
+                                    <template v-for="subItem in item.data" :key="subItem.key">
+                                        <TrackItem
+                                            v-if="!subItem.filtered"
+                                            @item-tool="onItemTool"
+                                            @track-tool="onTrackTool"
+                                            :data="subItem"
+                                            :state="state"
+                                            :select-map="state.selectMap"
+                                            :track="state.trackId"
+                                            :title-edit="$$('title-edit')"
+                                            :title-delete="$$('title-delete')"
+                                            :title-hide="$$('title-hide')"
+                                            :title-show="$$('title-show')"
+                                            :title-annotation="$$('title-annotation')"
+                                            :title-invisible="$$('title-invisible')"
+                                        />
+                                    </template>
                                 </div>
                                 <template #header>
                                     <span
@@ -91,7 +99,8 @@
                                         />
                                     </div>
                                 </template>
-                            </a-collapse-panel>
+                              </a-collapse-panel>
+                            </template>
                         </a-collapse>
                     </div>
                     <div v-show="!canOperate() || isPlay()" class="over-not-allowed"></div>
@@ -123,8 +132,17 @@
     // *********************************************
 
     let { canEdit, canOperate, isPlay } = useUI();
-    let { editor, state, domRef, onTrackTool, onItemTool, onClassTool, onToggleAttr, $$ } =
-        useInstance();
+    let {
+        editor,
+        state,
+        domRef,
+        onTrackTool,
+        onItemTool,
+        onClassTool,
+        onToggleAttr,
+        onToggleSuspiciousOnly,
+        $$,
+    } = useInstance();
 </script>
 
 <style lang="less">

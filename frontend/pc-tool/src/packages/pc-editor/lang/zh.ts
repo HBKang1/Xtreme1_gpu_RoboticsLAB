@@ -87,6 +87,26 @@ const zh: ILocale = {
     warnObjectRepeat: '无法合并：两条轨迹在同一帧均有框',
     warnClassTypeDiff: '无法合并：两条轨迹的类别不同',
     warnEmptyObject: '当前帧无可分割内容',
+    // #3 ground toggle
+    hideGround: '隐藏地面 (RANSAC)',
+    groundFitFailed: '未找到地面平面 — 地面保持可见',
+    // #4 keyframe interpolation
+    menuSetKeyframe: '设置插值关键帧 (先 A 后 B)',
+    keyframeASet: '关键帧 A 已设在第 {{a}} 帧',
+    keyframeBSet: '关键帧已设置: A={{a}}, B={{b}}',
+    keyframeSetHint: '关键帧 A={{a}}, B={{b}} — 点击重置',
+    keyframeSameHint: '请为关键帧 B 选择不同的帧',
+    menuInterpolate: '在关键帧之间插值空帧/回退帧',
+    interpolateNoKeyframeHint: '请先设置关键帧 A 和 B',
+    interpolateNoEndpoint: '两个关键帧都必须包含该轨迹的框',
+    interpolateNothing: '关键帧之间没有可填充的空帧或回退帧',
+    interpolateTrackMismatch: '关键帧设在了不同的轨迹上 — 请重新设置',
+    interpolateDone: '帧已插值',
+    // #5 unify dimensions
+    menuUnifyDimensions: '将轨迹尺寸统一为中位数 (强体类别)',
+    unifyNotRigid: '尺寸锁定仅适用于强体类别 (Pedestrian 除外)',
+    unifyTooShort: '轨迹过短无法统一 (至少需 2 帧)',
+    unifyDone: '轨迹尺寸已统一为中位数',
 };
 
 export { zh };

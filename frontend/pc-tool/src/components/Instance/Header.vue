@@ -6,6 +6,11 @@
             ({{ data.objectN }})
         </span>
         <div class="tool">
+            <FilterOutlined
+                :class="suspiciousOnly ? 'icon suspicious active' : 'icon suspicious'"
+                :title="$$('title-suspicious-only')"
+                @click.stop="onToggleSuspicious"
+            />
             <i
                 :class="
                     tState.config.showAttr
@@ -36,15 +41,18 @@
 <script setup lang="ts">
     import useUI from '../../hook/useUI';
     import * as _ from 'lodash';
+    import { FilterOutlined } from '@ant-design/icons-vue';
     import { useInjectEditor } from '../../state';
     import * as locale from './lang';
     import { IClassify } from './type';
 
     // ***************Props and Emits***************
-    let emit = defineEmits(['toggle-attr']);
+    let emit = defineEmits(['toggle-attr', 'toggle-suspicious']);
     let props = defineProps<{
         // title: string;
         data: IClassify;
+        // #1: current "suspicious-only" filter state (panel-local).
+        suspiciousOnly?: boolean;
     }>();
     // *********************************************
 
@@ -65,6 +73,10 @@
 
     function onToggleAttr() {
         emit('toggle-attr');
+    }
+
+    function onToggleSuspicious() {
+        emit('toggle-suspicious');
     }
 
     function onDelete() {

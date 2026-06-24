@@ -50,6 +50,8 @@ const hotkeyConfig: IHotkeyConfig[] = [
     // model tracking (prototype) — mirrors the copy hotkeys
     { key: `alt+t`, action: 'trackForward' },
     { key: `alt+shift+t`, action: 'trackAllForward' },
+    // #1 Confidence Review Queue — jump selection to the next suspicious box
+    { key: 'j', action: 'jumpToNextSuspicious' },
 ];
 
 export default hotkeyConfig;

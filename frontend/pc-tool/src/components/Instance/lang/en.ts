@@ -1,6 +1,7 @@
 const en = {
     'track-object-title': 'Tracking Results({{n}})',
     'title-show-attr': 'Show tracking object attributes',
+    'title-suspicious-only': 'Show suspicious only (fallback / bad size / overlap)',
     'header-Operation': 'Operation',
     'header-remove-all': 'Remove All',
     'title-hide': 'Hide',

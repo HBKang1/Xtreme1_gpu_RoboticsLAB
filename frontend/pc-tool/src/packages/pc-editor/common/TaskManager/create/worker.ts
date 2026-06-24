@@ -66,7 +66,8 @@ function execute(msg: IMessage) {
   if (!tool || tool.frameId != msg.frameId) {
     init(msg);
   }
-  let { projectPos, deNoise, headAngle, matrix, heightRange, coordinate } = msg.data || {};
+  let { projectPos, deNoise, headAngle, matrix, heightRange, coordinate, groundPlane } =
+    msg.data || {};
   // transform.position = new Vector3().copy(transform.position);
   // transform.scale = new Vector3().copy(transform.scale);
   // transform.rotation = new Euler().copy(transform.rotation);
@@ -82,6 +83,7 @@ function execute(msg: IMessage) {
           headAngle,
           heightRange,
           deNoise,
+          groundPlane,
         );
       }
       break;

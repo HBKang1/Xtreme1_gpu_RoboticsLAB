@@ -1,5 +1,5 @@
 import { reactive, onMounted, onBeforeUnmount, watch, ref } from 'vue';
-import { Event as EditorEvent, Const } from 'pc-editor';
+import { Event as EditorEvent, Const, isSuspicious } from 'pc-editor';
 import { IUserData } from 'pc-editor';
 import * as THREE from 'three';
 import * as _ from 'lodash';
@@ -539,19 +539,30 @@ export default function useBottom() {
     }
 
     function getTrackLine(trackId: string) {
-        const length = editor.state.frames.length;
+        const frames = editor.state.frames;
+        const length = frames.length;
         if (!trackId) return Array(length);
         const list = editor.trackManager.getTrackObjectMap(trackId)[trackId];
         if (!list) return Array(length);
-        return list.map((item: any) => {
+        return list.map((item: any, frameIndex: number) => {
             const invalid = item.some((el: any) => el.invalidConfig);
             const trueValue = item.every(
                 (el: any) => el.userData.resultStatus === Const.True_Value,
             );
+            // #1: client-side suspicious predicate (fallback 0.1 / bad size / overlap),
+            // computed from box geometry already loaded — no serving flag / DB round-trip.
+            // Same-frame neighbors for the overlap rule come from the loaded frame's
+            // objects (DataManager.getFrameObject(frameId)).
+            const frame = frames[frameIndex];
+            const sameFrameBoxes = frame
+                ? editor.dataManager.getFrameObject(frame.id) || []
+                : [];
+            const suspicious = item.some((el: any) => isSuspicious(el, sameFrameBoxes as any));
             return {
                 ...item[0].userData,
                 invalid: invalid,
                 trueValue: trueValue,
+                suspicious: suspicious,
             };
         });
     }

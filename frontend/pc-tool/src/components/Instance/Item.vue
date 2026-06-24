@@ -11,6 +11,12 @@
         <i v-show="props.data.annotateType === 'box2d'" class="iconfont icon-gongju"></i>
         <BorderOutlined v-show="props.data.annotateType === 'rect'" />
         <span style="margin-left: 4px">{{ props.data.name }}</span>
+        <!-- #1: surface model confidence + suspicious marker in the review row -->
+        <span
+            v-if="props.data.confidence !== undefined"
+            :class="props.data.suspicious ? 'conf-tag suspicious' : 'conf-tag'"
+            >{{ props.data.confidence.toFixed(2) }}</span
+        >
         <i
             class="iconfont icon-tixing invisible"
             v-show="props.data.invisible"
@@ -84,4 +90,15 @@
     }
 </script>
 
-<style lang="less"></style>
+<style lang="less">
+    .conf-tag {
+        margin-left: 6px;
+        font-size: 11px;
+        color: #8a8f99;
+        // #1: suspicious rows (fallback / bad size / overlap) read in the highlight color
+        &.suspicious {
+            color: #ffa900;
+            font-weight: 600;
+        }
+    }
+</style>

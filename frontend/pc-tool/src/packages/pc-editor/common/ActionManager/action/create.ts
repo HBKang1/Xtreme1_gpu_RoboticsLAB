@@ -109,6 +109,13 @@ export const createObjectWith3 = define({
                             const matrix = new THREE.Matrix4();
                             matrix.copy(view.camera.projectionMatrix);
                             matrix.multiply(view.camera.matrixWorldInverse);
+                            // #3 ground toggle: when hide-ground is on, fit the RANSAC
+                            // plane and hand it to the AIBox worker so snap fits the
+                            // fitted plane instead of the fixed-z road heuristic.
+                            // Saved geometry / detector input are unaffected.
+                            const groundPlane = config.hideGround
+                                ? editor.configManager.ensureGroundPlane()
+                                : null;
                             const taskData = await createTask
                                 .create(
                                     positions,
@@ -117,6 +124,14 @@ export const createObjectWith3 = define({
                                     headAngle,
                                     true,
                                     config.heightRange,
+                                    groundPlane
+                                        ? {
+                                              a: groundPlane.a,
+                                              b: groundPlane.b,
+                                              c: groundPlane.c,
+                                              d: groundPlane.d,
+                                          }
+                                        : null,
                                 )
                                 .catch(() => {
                                     return { data: undefined, frameId: undefined };

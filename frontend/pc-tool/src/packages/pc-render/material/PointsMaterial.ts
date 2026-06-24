@@ -66,10 +66,17 @@ function getShaderCode(
     uniform mat4 modelViewMatrix; 
     uniform mat4 projectionMatrix; 
 
-    // 
+    //
     uniform vec2 heightRange;
     uniform vec2 pointHeight;
-    uniform float pointSize; 
+    uniform float pointSize;
+
+    // #3 ground toggle: when hideGround > 0, points within groundBand of the
+    // fitted RANSAC plane (groundPlane = vec4(a, b, c, d)) are discarded from the
+    // view. View-only — never affects detector input or saved geometry.
+    uniform float hideGround;
+    uniform vec4 groundPlane;
+    uniform float groundBand;
     // 1.0 range-only, 2.0 range-opacity
     uniform float trimType; 
 
@@ -137,9 +144,17 @@ function getShaderCode(
         float vPointSize = pointSize;
         gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         if(position.z>heightRange.y||position.z<heightRange.x){
-            vDiscard = 1.0;  
+            vDiscard = 1.0;
         }
-        
+
+        // #3 ground toggle: discard points near the fitted ground plane.
+        if(hideGround > 0.0){
+            float planeDist = groundPlane.x*position.x + groundPlane.y*position.y + groundPlane.z*position.z + groundPlane.w;
+            if(abs(planeDist) <= groundBand){
+                vDiscard = 1.0;
+            }
+        }
+
         if (colorMode == 1.0)
         {
             if(colorRoad>0.0&&road>0.0){
@@ -276,6 +291,10 @@ export interface IUniformOption {
     // Camera Region
     hasCameraRegion?: number;
     regionMatrix?: THREE.Matrix4;
+    // #3 ground toggle
+    hideGround?: number;
+    groundPlane?: THREE.Vector4;
+    groundBand?: number;
 }
 
 type UniformKey = keyof IUniformOption;
@@ -327,6 +346,10 @@ export default class PointsMaterial extends THREE.RawShaderMaterial {
                 },
                 hasCameraRegion: { value: -1 },
                 regionMatrix: { value: new THREE.Matrix4() },
+                // #3 ground toggle
+                hideGround: { value: -1 },
+                groundPlane: { value: new THREE.Vector4(0, 0, 1, 0) },
+                groundBand: { value: 0.2 },
             },
             vertexShader: '',
             fragmentShader: '',

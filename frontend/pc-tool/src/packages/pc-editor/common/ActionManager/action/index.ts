@@ -6,3 +6,4 @@ export * from './general';
 export * from './viewUI';
 export * from './viewAngle';
 export * from './frame';
+export * from './suspicious';

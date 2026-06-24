@@ -20,10 +20,160 @@ TRACK_MAX_MISSES = 5            # deactivate a track after this many consecutive
 TRACK_SNAP_MIN_POINTS = 10      # min in-box points for a fallback to snap onto the cloud
 TRACK_SNAP_RADIUS_SCALE = 0.75  # BEV snap window = max(length, width) * this
 
+# rule-validation thresholds (CANONICAL SOURCE). The frontend mirrors these in
+# frontend/pc-tool/src/packages/pc-editor/config/validation.ts; a parity test
+# (test_validation_parity.py) guards the two against silent drift. Note: these
+# flags are stripped by the closed Java ModelResultConverter before reaching the
+# DB/frontend, so they exist for curl-verification only -- the frontend computes
+# the same predicate client-side from loaded box geometry.
+# Per UPPER class name -> per-axis (min, max) in meters for (dx, dy, dz).
+VALID_SIZE = {
+    'CAR':        {'x': (2.5, 6.5),  'y': (1.4, 2.4), 'z': (1.2, 2.2)},
+    'TRUCK':      {'x': (4.0, 14.0), 'y': (1.8, 3.2), 'z': (1.8, 4.5)},
+    'BUS':        {'x': (6.0, 18.0), 'y': (2.0, 3.2), 'z': (2.5, 4.5)},
+    'PEDESTRIAN': {'x': (0.2, 1.2),  'y': (0.2, 1.2), 'z': (1.0, 2.2)},
+    'BICYCLE':    {'x': (1.0, 2.2),  'y': (0.3, 1.0), 'z': (1.0, 2.0)},
+    'MOTORCYCLE': {'x': (1.2, 2.7),  'y': (0.4, 1.3), 'z': (1.0, 2.0)},
+}
+VALID_IOU = 0.5  # BEV IoU above which a same-frame pair is flagged as overlapping
+
 
 def ang_diff(a: float, b: float) -> float:
     """Signed smallest angle difference a-b, in (-pi, pi]."""
     return (a - b + np.pi) % (2 * np.pi) - np.pi
+
+
+def _dims_heading(box):
+    """Normalize a box dict to a uniform (x, y, dx, dy, dz, heading) tuple,
+    handling both emission shapes used in this file:
+      - NESTED (TrackHandler): center3D.{x,y,z}, size3D.{x,y,z}, rotation3D.z
+      - FLAT (AppHandler / SequenceHandler._emit_object): x/y/z, dx/dy/dz, rotZ
+    size3D may itself be a dict ({x,y,z}) or a [dx,dy,dz] list/tuple."""
+    if 'center3D' in box:
+        c = box['center3D']
+        s = box['size3D']
+        if isinstance(s, dict):
+            dx, dy, dz = float(s['x']), float(s['y']), float(s['z'])
+        else:
+            dx, dy, dz = float(s[0]), float(s[1]), float(s[2])
+        return (float(c['x']), float(c['y']), dx, dy, dz,
+                float(box['rotation3D']['z']))
+    return (float(box['x']), float(box['y']),
+            float(box['dx']), float(box['dy']), float(box['dz']),
+            float(box['rotZ']))
+
+
+def _bad_size(label, dx, dy, dz):
+    """True iff the box dimensions fall outside VALID_SIZE for its class.
+    Unknown classes (not in VALID_SIZE) are never flagged."""
+    rng = VALID_SIZE.get(label)
+    if rng is None:
+        return False
+    return not (rng['x'][0] <= dx <= rng['x'][1] and
+                rng['y'][0] <= dy <= rng['y'][1] and
+                rng['z'][0] <= dz <= rng['z'][1])
+
+
+def _bev_iou(box_a, box_b):
+    """Rotated-2D (bird's-eye-view) IoU of two boxes, each a
+    (x, y, dx, dy, heading) tuple. Uses Sutherland-Hodgman polygon clipping of
+    the two rotated rectangles -- no external geometry deps."""
+    poly_a = _box_corners(box_a)
+    poly_b = _box_corners(box_b)
+    inter = _poly_area(_clip_poly(poly_a, poly_b))
+    if inter <= 0.0:
+        return 0.0
+    area_a = box_a[2] * box_a[3]
+    area_b = box_b[2] * box_b[3]
+    union = area_a + area_b - inter
+    if union <= 0.0:
+        return 0.0
+    return inter / union
+
+
+def _box_corners(box):
+    """Four CCW corners of a rotated BEV rectangle (x, y, dx, dy, heading)."""
+    x, y, dx, dy, heading = box
+    hx, hy = dx / 2.0, dy / 2.0
+    cos_h, sin_h = np.cos(heading), np.sin(heading)
+    local = ((-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy))
+    return [(x + lx * cos_h - ly * sin_h, y + lx * sin_h + ly * cos_h)
+            for lx, ly in local]
+
+
+def _clip_poly(subject, clip):
+    """Sutherland-Hodgman clip of convex polygon `subject` by convex polygon
+    `clip` (both CCW). Returns the intersection polygon's vertex list."""
+    output = subject
+    cn = len(clip)
+    for i in range(cn):
+        if not output:
+            break
+        a = clip[i]
+        b = clip[(i + 1) % cn]
+        # edge a->b; inside = left side for a CCW clip polygon
+        edge_x, edge_y = b[0] - a[0], b[1] - a[1]
+
+        def _inside(p):
+            return edge_x * (p[1] - a[1]) - edge_y * (p[0] - a[0]) >= 0.0
+
+        inp = output
+        output = []
+        prev = inp[-1]
+        prev_in = _inside(prev)
+        for cur in inp:
+            cur_in = _inside(cur)
+            if cur_in:
+                if not prev_in:
+                    output.append(_line_intersect(prev, cur, a, b))
+                output.append(cur)
+            elif prev_in:
+                output.append(_line_intersect(prev, cur, a, b))
+            prev, prev_in = cur, cur_in
+    return output
+
+
+def _line_intersect(p1, p2, p3, p4):
+    """Intersection point of segment p1->p2 with the infinite line p3->p4."""
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = p3
+    x4, y4 = p4
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if denom == 0.0:
+        return p1
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+
+def _poly_area(poly):
+    """Shoelace area of a polygon (>= 0 for any winding)."""
+    n = len(poly)
+    if n < 3:
+        return 0.0
+    area = 0.0
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2.0
+
+
+def _mark_overlaps(boxes):
+    """Set overlap=True on every box of any same-frame pair whose BEV IoU
+    exceeds VALID_IOU. `boxes` is a list of emitted box dicts (any shape)."""
+    n = len(boxes)
+    if n < 2:
+        return
+    bev = []
+    for b in boxes:
+        x, y, dx, dy, _dz, heading = _dims_heading(b)
+        bev.append((x, y, dx, dy, heading))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _bev_iou(bev[i], bev[j]) > VALID_IOU:
+                boxes[i]['overlap'] = True
+                boxes[j]['overlap'] = True
 
 # browser-facing presigned URLs look like {scheme}://{gateway}/minio/<bucket>/<obj>?<sig>.
 # the MinIO signature is computed for the path AFTER nginx strips /minio, so the
@@ -149,13 +299,19 @@ class AppHandler(BaseApiHandler):
                 "dz": box[5],
                 "rotX": 0,
                 "rotY": 0,
-                "rotZ": box[6]
+                "rotZ": box[6],
+                # rule-validation flags (curl-verifiable; stripped by the Java
+                # converter before reaching the frontend -- see VALID_SIZE note)
+                "bad_size": _bad_size(class_names[label-1].upper(),
+                                      box[3], box[4], box[5]),
+                "overlap": False,
             }
             for box, score, label in zip(
                 results['pred_boxes'].astype(np.float64).round(3).tolist(),
                 results['pred_scores'].astype(np.float64).round(3).tolist(),
                 results['pred_labels'].tolist())
         ]
+        _mark_overlaps(objects)
 
         return {
             "id": id,
@@ -200,8 +356,12 @@ class TrackHandler(AppHandler):
         vel = pos - self._vec(prev) if prev else np.zeros(3, dtype=np.float64)
         if keep_z:
             vel[2] = 0.0
+        # class label for bad_size: the pc-tool seed carries modelClass (may be
+        # null) but no class-name field; fall back to None -> never flagged.
+        label = seed.get('modelClass') or seed.get('label')
         return {
             'id': seed['trackingId'],
+            'label': label.upper() if isinstance(label, str) else None,
             'pos': pos,
             'vel': vel,
             'size': seed['size3D'],
@@ -276,17 +436,27 @@ class TrackHandler(AppHandler):
                         logging.info(f"TRACK {track['id']}: deactivated after "
                                      f"{track['miss']} consecutive misses")
                         continue
+                size = track['size']
+                # fallback boxes (constant-velocity propagations) are exempt from
+                # hard size failure -- they are not fresh detections
+                is_fallback = confidence == TRACK_FALLBACK_CONFIDENCE
+                bad_size = (not is_fallback) and _bad_size(
+                    track['label'],
+                    float(size['x']), float(size['y']), float(size['z']))
                 objects.append({
                     'trackingId': track['id'],
                     'center3D': {'x': float(track['pos'][0]),
                                  'y': float(track['pos'][1]),
                                  'z': float(track['pos'][2])},
-                    'size3D': track['size'],
+                    'size3D': size,
                     'rotation3D': {'x': float(track['rot']['x']),
                                    'y': float(track['rot']['y']),
                                    'z': float(track['heading'])},
                     'confidence': confidence,
+                    'bad_size': bad_size,
+                    'overlap': False,
                 })
+            _mark_overlaps(objects)
             logging.info(f"TRACK {frame_id}: {len(boxes)} detections, "
                          f"{len(matches)}/{len(active)} matched, {snap_count} snapped")
             return {'id': frame_id, 'code': 'OK', 'message': '', 'objects': objects}
@@ -472,6 +642,14 @@ class SequenceHandler(AppHandler):
 
     def _emit_object(self, track):
         """Flat object matching the /pointCloud/recognition shape + trackingId."""
+        dx, dy, dz = (round(float(track['size'][0]), 3),
+                      round(float(track['size'][1]), 3),
+                      round(float(track['size'][2]), 3))
+        # fallback boxes (propagated, confidence==0.1) are exempt from hard
+        # size failure; overlap is set per-frame in _process_frame
+        is_fallback = float(track['confidence']) == TRACK_FALLBACK_CONFIDENCE
+        label = track['label'].upper() if isinstance(track['label'], str) else None
+        bad_size = (not is_fallback) and _bad_size(label, dx, dy, dz)
         return {
             'trackingId': track['id'],
             'label': track['label'],
@@ -479,12 +657,14 @@ class SequenceHandler(AppHandler):
             'x': round(float(track['pos'][0]), 3),
             'y': round(float(track['pos'][1]), 3),
             'z': round(float(track['pos'][2]), 3),
-            'dx': round(float(track['size'][0]), 3),
-            'dy': round(float(track['size'][1]), 3),
-            'dz': round(float(track['size'][2]), 3),
+            'dx': dx,
+            'dy': dy,
+            'dz': dz,
             'rotX': 0,
             'rotY': 0,
             'rotZ': round(float(track['heading']), 3),
+            'bad_size': bad_size,
+            'overlap': False,
         }
 
     def _track_states(self, tracks):
@@ -591,6 +771,7 @@ class SequenceHandler(AppHandler):
                 logging.info(f"SEQUENCE {track['id']}: terminated after "
                              f"{track['miss']} consecutive misses")
 
+        _mark_overlaps(objects)
         logging.info(f"SEQUENCE {frame_id}: {len(boxes)} detections, "
                      f"{len(matches)}/{len(active)} matched, "
                      f"{len(boxes) - len(matched_dets)} new tracks")

@@ -10,6 +10,7 @@ import {
     AttrType,
     StatusType,
     IFrame,
+    isSuspicious,
 } from 'pc-editor';
 import type { IClass, IState, IItem, IClassify } from './type';
 import { AnnotateType, Rect } from 'pc-render';
@@ -61,6 +62,7 @@ export default function useInstance() {
         globalClassMap: {},
         globalTrackMap: {},
         expandAll: false,
+        showSuspiciousOnly: false,
     });
 
     // @ts-ignore
@@ -220,6 +222,11 @@ export default function useInstance() {
         let object2Ds = pc.getAnnotate2D();
         let objects = [...object3Ds, ...object2Ds];
 
+        // #1: same-frame 3D neighbors for the overlap rule are exactly the loaded
+        // 3D boxes of the current frame (pc.getAnnotate3D()); the predicate is
+        // computed client-side from box geometry, no serving flag / DB round-trip.
+        let sameFrame3Ds = object3Ds as any[];
+
         let classifyMap: Record<string, IClassify> = {};
         let trackMap: Record<string, IItem> = {};
         let classMap: Record<string, IClass> = {};
@@ -284,6 +291,13 @@ export default function useInstance() {
 
             let name = userData.id.slice(-4);
 
+            // #1: confidence (model signal) + client-side suspicious predicate
+            // (fallback 0.1 OR badSize OR overlap). Only 3D boxes carry geometry,
+            // so suspicious is evaluated for 3D objects against same-frame 3D boxes.
+            let confidence = userData.confidence;
+            let suspicious =
+                obj instanceof THREE.Object3D ? isSuspicious(obj as any, sameFrame3Ds) : false;
+
             let item: IItem = {
                 id: uuid,
                 key: '',
@@ -295,6 +309,8 @@ export default function useInstance() {
                 visible: obj.visible,
                 isModel: !!userData.modelClass,
                 active: [],
+                confidence,
+                suspicious,
             };
 
             if (!classifyMap[classify]) {
@@ -334,13 +350,31 @@ export default function useInstance() {
                     data: [],
                     attrLabel: '',
                     active: oldActive[trackMapId] || [],
+                    confidence: undefined,
+                    suspicious: false,
                 };
 
                 classMap[classMapId].data.push(trackItem);
                 trackMap[trackMapId] = trackItem;
             }
 
+            // #1: a track is suspicious if any of its boxes is; its representative
+            // confidence is the MIN over its boxes (the lowest sorts first / nulls last).
+            let track = trackMap[trackMapId];
+            track.suspicious = track.suspicious || suspicious;
+            track.confidence = minConfidence(track.confidence, confidence);
+
             trackMap[trackMapId].data.push(item);
+        });
+
+        // #1: sort track rows within each class ascending by confidence (nulls last),
+        // and the object rows within each track the same way, so the reviewer meets
+        // the least-confident (most likely wrong) auto-labels first.
+        Object.keys(classMap).forEach((key) => {
+            classMap[key].data.sort(byConfidenceAsc);
+            classMap[key].data.forEach((trackItem) => {
+                trackItem.data.sort(byConfidenceAsc);
+            });
         });
 
         if (noClass.data.length > 0) {
@@ -485,11 +519,30 @@ export default function useInstance() {
         );
     }
 
+    // #1: combine two confidences keeping the lower; undefined = "no model signal".
+    function minConfidence(a?: number, b?: number) {
+        if (a === undefined) return b;
+        if (b === undefined) return a;
+        return Math.min(a, b);
+    }
+
+    // #1: ascending by confidence with undefined (no model signal) sorted last.
+    function byConfidenceAsc(a: IItem, b: IItem) {
+        let ca = a.confidence;
+        let cb = b.confidence;
+        if (ca === undefined && cb === undefined) return 0;
+        if (ca === undefined) return 1;
+        if (cb === undefined) return -1;
+        return ca - cb;
+    }
+
     function filterInfo(classifyInfo: IClassify) {
         let objectN = 0;
         let classifyVisible = false;
+        let suspiciousOnly = state.showSuspiciousOnly;
         classifyInfo.data.forEach((classInfo) => {
             let classVisible = false;
+            let classHasShown = false;
             classInfo.data.forEach((trackInfo) => {
                 let hasVisible = false;
                 let haInvisible = false;
@@ -503,9 +556,14 @@ export default function useInstance() {
                 });
                 trackInfo.visible = hasVisible;
                 trackInfo.invisible = haInvisible;
+                // #1: "suspicious-only" hides non-suspicious tracks (display only).
+                trackInfo.filtered = suspiciousOnly && !trackInfo.suspicious;
+                if (!trackInfo.filtered) classHasShown = true;
                 objectN++;
             });
+            // when filtering, a class with no shown track collapses too
             classInfo.visible = classVisible;
+            classInfo.filtered = suspiciousOnly && !classHasShown;
         });
         classifyInfo.visible = classifyVisible;
         classifyInfo.objectN = objectN;
@@ -620,6 +678,13 @@ export default function useInstance() {
         }
     }
 
+    // #1: toggle the panel-local "suspicious-only" filter and re-run the row filter
+    // (no list rebuild needed — the suspicious flags are already on each item).
+    function onToggleSuspiciousOnly() {
+        state.showSuspiciousOnly = !state.showSuspiciousOnly;
+        state.list.forEach((info) => filterInfo(info));
+    }
+
     return {
         editor,
         noClassKey,
@@ -627,6 +692,7 @@ export default function useInstance() {
         domRef,
         // animation,
         onToggleAttr,
+        onToggleSuspiciousOnly,
         onItemTool,
         onClassTool,
         onTrackTool,

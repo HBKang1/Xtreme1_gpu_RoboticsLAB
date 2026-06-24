@@ -252,6 +252,9 @@ export interface IConfig {
     pointSize: number;
     heightRange: [number, number];
     groundEnable: boolean;
+    // #3 ground toggle: RANSAC-based ground hide (view + AIBox/track snap reference only,
+    // detector input and saved geometry are never modified). Default OFF.
+    hideGround: boolean;
     // setting
     pointColorMode: ColorModeEnum;
     pointIntensity: [number, number];
@@ -469,4 +472,22 @@ export interface ICheckConfig {
     subViewWidth: number;
     subViewHeight: number;
     subViewScale: number;
+}
+
+// #5 class dimension-lock: rigid vehicle classes whose physical size is constant
+// across a track, so "Unify Dimensions" can lock every frame to the track median.
+// Pedestrian is deliberately excluded (posture varies the box). Matched against the
+// resolved class name (editor.getClassType(userData)?.name) case-insensitively.
+export const RIGID_CLASSES: readonly string[] = [
+    'Car',
+    'Truck',
+    'Bus',
+    'Bicycle',
+    'Motorcycle',
+];
+
+export function isRigidClass(name: string | undefined | null): boolean {
+    if (!name) return false;
+    const lower = name.toLowerCase();
+    return RIGID_CLASSES.some((c) => c.toLowerCase() === lower);
 }

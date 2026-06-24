@@ -15,6 +15,18 @@
                     />
                 </span>
             </a-tooltip>
+            <!-- #3 ground toggle: RANSAC ground hide (view + AIBox snap only, default OFF) -->
+            <a-tooltip placement="top">
+                <template #title>{{ editor.lang('hideGround') }}</template>
+                <span @keydown.capture="(e) => e.stopPropagation()">
+                    <a-switch
+                        size="small"
+                        :checked="config.hideGround"
+                        @change="onHideGroundHandle"
+                        style="margin-right: 10px"
+                    />
+                </span>
+            </a-tooltip>
             <div v-show="disable" class="over-not-allowed"></div>
         </div>
         <div class="bar-center">
@@ -338,6 +350,41 @@
                             <template #icon><SplitCellsOutlined /></template>
                         </a-button>
                     </a-tooltip>
+                    <!-- #4 keyframe interpolation + #5 unify dimensions -->
+                    <a-divider
+                        type="vertical"
+                        style="height: 24px; background-color: #57575c; margin: 0 6px"
+                    />
+                    <a-tooltip placement="top">
+                        <template #title>{{
+                            keyframeA === null || keyframeB === null
+                                ? editor.lang('menuSetKeyframe')
+                                : editor.lang('keyframeSetHint', { a: keyframeA + 1, b: keyframeB + 1 })
+                        }}</template>
+                        <a-button :disabled="disable" @click="onSetKeyframe" style="width: 40px">
+                            <template #icon><BorderOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{
+                            keyframeA !== null && keyframeB !== null
+                                ? editor.lang('menuInterpolate')
+                                : editor.lang('interpolateNoKeyframeHint')
+                        }}</template>
+                        <a-button
+                            :disabled="disable || keyframeA === null || keyframeB === null"
+                            @click="onInterpolate"
+                            style="width: 40px"
+                        >
+                            <template #icon><LineChartOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
+                    <a-tooltip placement="top">
+                        <template #title>{{ editor.lang('menuUnifyDimensions') }}</template>
+                        <a-button :disabled="disable" @click="onUnifyDimensions" style="width: 40px">
+                            <template #icon><ColumnWidthOutlined /></template>
+                        </a-button>
+                    </a-tooltip>
                 </template>
             </div>
         </div>
@@ -364,7 +411,7 @@
 </template>
 <script lang="ts" setup>
     import * as _ from 'lodash';
-    import { ref, computed, watch, reactive } from 'vue';
+    import { ref, computed, watch, reactive, onBeforeUnmount } from 'vue';
 
     import useUI from '../../hook/useUI';
     import { ITrackAction, IBottomState } from './useTimeLine';
@@ -379,8 +426,19 @@
         PushpinOutlined,
         MergeCellsOutlined,
         SplitCellsOutlined,
+        BorderOutlined,
+        LineChartOutlined,
+        ColumnWidthOutlined,
     } from '@ant-design/icons-vue';
+    import * as THREE from 'three';
     import { Box } from 'pc-render';
+    import {
+        isRigidClass,
+        TRACK_FALLBACK_CONFIDENCE,
+        IFrame,
+        IUserData,
+        Event as EditorEvent,
+    } from 'pc-editor';
     import { useInjectEditor } from '../../state';
     import { useTrackMergeBase } from './useTrackMergeBase';
     const { mergeBaseTrackId } = useTrackMergeBase();
@@ -445,6 +503,244 @@
     function onAutoLoadHandle() {
         autoLoadSwitch.value?.blur();
         onAction('AutoLoad');
+    }
+
+    // --- #3 ground toggle (view + AIBox snap reference only; saved geometry unchanged) ---
+    function onHideGroundHandle(checked: boolean) {
+        editor.configManager.setHideGround(checked);
+    }
+
+    // --- #4 keyframe interpolation (fill empty/fallback frames between two keyframes) ---
+    const keyframeA = ref<number | null>(null);
+    const keyframeB = ref<number | null>(null);
+    // the track A/B were set on — guards against interpolating with keyframes from a
+    // different (previously selected) track. selection (pc.selection) is a non-reactive
+    // THREE array, so a Vue watch over getCurTrack() can miss changes; instead reset on
+    // the editor's ANNOTATE_SELECT event, which fires on every selection change.
+    const keyframeTrackId = ref<string | null>(null);
+
+    function resetKeyframes() {
+        keyframeA.value = null;
+        keyframeB.value = null;
+        keyframeTrackId.value = null;
+    }
+
+    function onTrackSelectionChange() {
+        // drop keyframes whenever the selected track differs from where A/B were set
+        if (keyframeTrackId.value && editor.getCurTrack() !== keyframeTrackId.value) {
+            resetKeyframes();
+        }
+    }
+    editor.addEventListener(EditorEvent.ANNOTATE_SELECT, onTrackSelectionChange);
+    onBeforeUnmount(() => {
+        editor.removeEventListener(EditorEvent.ANNOTATE_SELECT, onTrackSelectionChange);
+    });
+
+    function onSetKeyframe() {
+        const trackId = editor.getCurTrack();
+        if (!trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+        const idx = editor.state.frameIndex;
+        // first click sets A; second sets B; third restarts from A
+        if (keyframeA.value === null || keyframeB.value !== null) {
+            keyframeA.value = idx;
+            keyframeB.value = null;
+            keyframeTrackId.value = trackId;
+            editor.showMsg('success', editor.lang('keyframeASet', { a: idx + 1 }));
+            return;
+        }
+        // B must be set on the SAME track as A
+        if (trackId !== keyframeTrackId.value) {
+            keyframeA.value = idx;
+            keyframeB.value = null;
+            keyframeTrackId.value = trackId;
+            editor.showMsg('success', editor.lang('keyframeASet', { a: idx + 1 }));
+            return;
+        }
+        if (idx === keyframeA.value) {
+            editor.showMsg('warning', editor.lang('keyframeSameHint'));
+            return;
+        }
+        keyframeB.value = idx;
+        // normalize so A < B
+        if (keyframeA.value > keyframeB.value) {
+            [keyframeA.value, keyframeB.value] = [keyframeB.value, keyframeA.value];
+        }
+        editor.showMsg(
+            'success',
+            editor.lang('keyframeBSet', { a: keyframeA.value + 1, b: keyframeB.value + 1 }),
+        );
+    }
+
+    // shortest-angle yaw interpolation (R-heading): take the signed delta wrapped to
+    // (-π, π] so the box never spins the long way around.
+    function lerpAngle(a: number, b: number, t: number): number {
+        let delta = b - a;
+        delta = delta - Math.floor((delta + Math.PI) / (2 * Math.PI)) * 2 * Math.PI; // wrap to (-π, π]
+        return a + delta * t;
+    }
+
+    function onInterpolate() {
+        const trackId = editor.getCurTrack();
+        if (!trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+        const a = keyframeA.value;
+        const b = keyframeB.value;
+        if (a === null || b === null) {
+            editor.showMsg('warning', editor.lang('interpolateNoKeyframeHint'));
+            return;
+        }
+        // FIX 2 guard: never interpolate with keyframes set on a different track
+        if (keyframeTrackId.value && keyframeTrackId.value !== trackId) {
+            resetKeyframes();
+            editor.showMsg('warning', editor.lang('interpolateTrackMismatch'));
+            return;
+        }
+
+        const { frames } = editor.state;
+        const trackListMap = editor.trackManager.getTrackObjectMap(trackId);
+        const trackList = trackListMap[trackId] || [];
+
+        const boxA = (trackList[a] || []).find((o) => o instanceof Box) as Box | undefined;
+        const boxB = (trackList[b] || []).find((o) => o instanceof Box) as Box | undefined;
+        if (!boxA || !boxB) {
+            editor.showMsg('warning', editor.lang('interpolateNoEndpoint'));
+            return;
+        }
+
+        // metadata shared by every interpolated box (taken from endpoint A's track)
+        const baseUserData = editor.getObjectUserData(boxA);
+
+        // existing fallback boxes → transform in place; empty frames → create a box
+        // bound DIRECTLY to that frame (NOT via addModelTrackData, which re-derives the
+        // track from getCurrentFrame() and throws when the user is parked on a gap frame)
+        const updateObjects: Box[] = [];
+        const updateTransforms: { position: THREE.Vector3; scale: THREE.Vector3; rotation: THREE.Euler }[] = [];
+        const addByFrame: { objects: Box[]; frame: IFrame }[] = [];
+
+        for (let i = a + 1; i < b; i++) {
+            const t = (i - a) / (b - a);
+            const position = new THREE.Vector3().lerpVectors(boxA.position, boxB.position, t);
+            const scale = new THREE.Vector3().lerpVectors(boxA.scale, boxB.scale, t);
+            const rotZ = lerpAngle(boxA.rotation.z, boxB.rotation.z, t);
+            const rotation = new THREE.Euler(0, 0, rotZ);
+
+            const existing = (trackList[i] || []).find((o) => o instanceof Box) as Box | undefined;
+            if (existing) {
+                const conf = (existing.userData as any).confidence;
+                // preserve human-edited (non-fallback) boxes; only replace fallbacks
+                if (conf !== TRACK_FALLBACK_CONFIDENCE) continue;
+                updateObjects.push(existing);
+                updateTransforms.push({ position, scale, rotation });
+            } else {
+                // empty frame → create a box targeting THIS frame directly
+                const frame = frames[i];
+                if (!frame) continue;
+                const userData: IUserData = {
+                    trackId: baseUserData.trackId,
+                    trackName: baseUserData.trackName,
+                    classType: baseUserData.classType,
+                    classId: baseUserData.classId,
+                    // fallback confidence so a later re-interpolation can replace it,
+                    // and #1's review queue treats it as an unverified propagation
+                    confidence: TRACK_FALLBACK_CONFIDENCE,
+                };
+                const object = editor.createAnnotate3D(position, scale, rotation, userData);
+                editor.updateObjectRenderInfo(object);
+                addByFrame.push({ objects: [object], frame });
+            }
+        }
+
+        if (updateObjects.length === 0 && addByFrame.length === 0) {
+            editor.showMsg('warning', editor.lang('interpolateNothing'));
+            return;
+        }
+
+        editor.cmdManager.withGroup(() => {
+            if (addByFrame.length > 0) {
+                editor.cmdManager.execute('add-object', addByFrame);
+            }
+            if (updateObjects.length > 0) {
+                editor.cmdManager.execute('update-transform-batch', {
+                    objects: updateObjects,
+                    transforms: updateTransforms,
+                });
+            }
+        });
+
+        // mark every touched frame dirty so it persists on save
+        updateObjects.forEach((o) => {
+            const f = (o as any).frame as IFrame | undefined;
+            if (f) f.needSave = true;
+        });
+        addByFrame.forEach((d) => {
+            d.frame.needSave = true;
+        });
+
+        editor.pc.render();
+        emit('updateTrackLine');
+        editor.showMsg('success', editor.lang('interpolateDone'));
+    }
+
+    // --- #5 unify dimensions (lock rigid-class track size to the component-wise median) ---
+    function median(values: number[]): number {
+        const sorted = [...values].sort((x, y) => x - y);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    }
+
+    function onUnifyDimensions() {
+        const trackId = editor.getCurTrack();
+        if (!trackId) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+        const trackListMap = editor.trackManager.getTrackObjectMap(trackId);
+        const boxes: Box[] = [];
+        (trackListMap[trackId] || []).forEach((items) => {
+            (items || []).forEach((o) => {
+                if (o instanceof Box) boxes.push(o);
+            });
+        });
+        if (boxes.length === 0) {
+            editor.showMsg('warning', editor.lang('mergeNoSelect'));
+            return;
+        }
+
+        const className = editor.getClassType(editor.getObjectUserData(boxes[0]))?.name;
+        if (!isRigidClass(className)) {
+            // Pedestrian (and any non-rigid class) → no-op + warning
+            editor.showMsg('warning', editor.lang('unifyNotRigid'));
+            return;
+        }
+        if (boxes.length < 2) {
+            editor.showMsg('warning', editor.lang('unifyTooShort'));
+            return;
+        }
+
+        const medianSize = new THREE.Vector3(
+            median(boxes.map((b) => b.scale.x)),
+            median(boxes.map((b) => b.scale.y)),
+            median(boxes.map((b) => b.scale.z)),
+        );
+
+        editor.cmdManager.withGroup(() => {
+            editor.cmdManager.execute('update-transform-batch', {
+                objects: boxes,
+                transforms: { scale: medianSize } as any,
+            });
+        });
+        boxes.forEach((o) => {
+            const f = (o as any).frame as IFrame | undefined;
+            if (f) f.needSave = true;
+        });
+        editor.pc.render();
+        emit('updateTrackLine');
+        editor.showMsg('success', editor.lang('unifyDone'));
     }
 
     // --- track merge / split (operate on the selected track + current frame) ---

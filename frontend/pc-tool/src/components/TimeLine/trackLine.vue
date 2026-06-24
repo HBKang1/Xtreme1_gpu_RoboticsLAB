@@ -55,6 +55,9 @@
         modelColor: '#ffffff', // '#90d96c',
         emptyColor: '#303036', //'#c5c8cd',
         errorColor: '#ff3653',
+        // #1 Confidence Review Queue: highlight color for a suspicious box
+        // (fallback 0.1 / bad size / overlap). Distinct from errorColor (merge conflicts).
+        suspiciousColor: '#ffa900',
         defaultColor: '#4f556c',
         noclassColor: 'grey',
     };
@@ -107,6 +110,12 @@
     const isError = (index: number) => {
         return (props.errIndex || []).indexOf(index) !== -1;
     };
+    // #1: read the precomputed suspicious flag (set in useTimeLine.getTrackLine from
+    // box geometry). The trackList carries IUserData only — geometry is NOT on it, so
+    // the predicate is evaluated upstream where the loaded boxes are available.
+    const isSuspiciousFrame = (userData: IUserData) => {
+        return !!(userData as any)?.suspicious;
+    };
     // const isTrueValue = (item?: IUserData) => {
     //     return item?.trueValue;
     // };
@@ -149,6 +158,10 @@
         const classColor = props.colorMap[userData?.classId ?? ''];
         if (isError(index)) {
             style.backgroundColor = colorConfig.errorColor;
+        } else if (isSuspiciousFrame(userData)) {
+            // #1: a suspicious box (fallback / bad size / overlap) overrides its class
+            // color so the reviewer can spot it on the timeline.
+            style.backgroundColor = colorConfig.suspiciousColor;
         } else if (classColor) {
             style.backgroundColor = classColor;
         }

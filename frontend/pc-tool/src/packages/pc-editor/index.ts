@@ -34,3 +34,5 @@ export {
     defineAction,
 };
 export * from './type';
+// #1 Confidence Review Queue — client-side box-quality predicate (mirrors app.py)
+export * from './config/validation';

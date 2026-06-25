@@ -423,6 +423,15 @@ export default class Editor extends THREE.EventDispatcher {
         this.pc.selectObject(filters);
     }
 
+    selectByTrackIds(trackIds: string[]) {
+        let set = new Set(trackIds);
+        let annotate2D = this.pc.getAnnotate2D();
+        let annotate3D = this.pc.getAnnotate3D();
+
+        let filters = [...annotate3D, ...annotate2D].filter((e) => set.has(e.userData.trackId));
+        this.pc.selectObject(filters);
+    }
+
     updateSelect() {
         let { selection, selectionMap } = this.pc;
         let filterSelection = selection.filter((e) => selectionMap[e.uuid]);

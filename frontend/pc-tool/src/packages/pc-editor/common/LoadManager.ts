@@ -20,6 +20,14 @@ export default class LoadManager {
         if (!isSeriesFrame) this.editor.cmdManager.reset();
         const currentTrack = this.editor.currentTrack;
         const currentTrackName = this.editor.currentTrackName;
+        // snapshot every selected trackId so multi-selection survives the frame change
+        const selectedTrackIds = [
+            ...new Set(
+                this.editor.pc.selection
+                    .map((e) => (e.userData as IUserData).trackId)
+                    .filter(Boolean) as string[],
+            ),
+        ];
 
         this.editor.state.frameIndex = index;
 
@@ -34,7 +42,8 @@ export default class LoadManager {
             this.editor.handleErr(error);
         }
 
-        if (currentTrack) this.editor.selectByTrackId(currentTrack);
+        if (selectedTrackIds.length > 1) this.editor.selectByTrackIds(selectedTrackIds);
+        else if (currentTrack) this.editor.selectByTrackId(currentTrack);
         else this.editor.pc.selectObject();
 
         showLoading && this.editor.showLoading(false);

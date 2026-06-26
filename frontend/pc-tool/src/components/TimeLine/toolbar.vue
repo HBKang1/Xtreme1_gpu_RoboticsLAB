@@ -930,11 +930,12 @@
         display: flex;
         position: relative;
         align-items: center;
-        overflow-x: auto;
-        overflow-y: hidden;
-        height: 32px;
+        // ponytail: wrap onto a second row instead of clipping when there are many buttons
+        flex-wrap: wrap;
+        row-gap: 2px;
+        overflow: visible;
+        min-height: 32px;
         background-color: #1e1f22;
-        white-space: nowrap;
         flex-direction: row;
 
         .iconfont {
@@ -945,14 +946,16 @@
             display: flex;
             position: relative;
             align-items: center;
-            height: 100%;
+            flex-wrap: wrap;
+            height: auto;
         }
 
         .bar-right {
             display: flex;
             position: relative;
             align-items: center;
-            height: 100%;
+            flex-wrap: wrap;
+            height: auto;
         }
 
         .bar-center {

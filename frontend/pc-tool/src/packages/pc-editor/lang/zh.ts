@@ -87,9 +87,6 @@ const zh: ILocale = {
     warnObjectRepeat: '无法合并：两条轨迹在同一帧均有框',
     warnClassTypeDiff: '无法合并：两条轨迹的类别不同',
     warnEmptyObject: '当前帧无可分割内容',
-    // #3 ground toggle
-    hideGround: '隐藏地面 (RANSAC)',
-    groundFitFailed: '未找到地面平面 — 地面保持可见',
     // #4 keyframe interpolation
     menuSetKeyframe: '设置插值关键帧 (先 A 后 B)',
     keyframeASet: '关键帧 A 已设在第 {{a}} 帧',

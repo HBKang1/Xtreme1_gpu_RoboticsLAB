@@ -252,9 +252,6 @@ export interface IConfig {
     pointSize: number;
     heightRange: [number, number];
     groundEnable: boolean;
-    // #3 ground toggle: RANSAC-based ground hide (view + AIBox/track snap reference only,
-    // detector input and saved geometry are never modified). Default OFF.
-    hideGround: boolean;
     // setting
     pointColorMode: ColorModeEnum;
     pointIntensity: [number, number];

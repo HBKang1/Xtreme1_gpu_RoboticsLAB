@@ -78,15 +78,12 @@ export function getAIMiniBox(
   headAngle: any,
   heightRange?: [number, number],
   deNoise = true,
-  // #3 ground toggle: optional RANSAC ground plane (a,b,c,d). When present, snap
-  // fits to this plane instead of the fixed-z road heuristic.
-  groundPlane?: { a: number; b: number; c: number; d: number } | null,
 ) {
   const subpc = subPcFromProjectPos(projectPos, matrix, attributes, heightRange);
   if (subpc.size === 0) {
     return;
   }
-  const boxInfo = tool.box3dFromSubpc(subpc, { headAngle, groundPlane });
+  const boxInfo = tool.box3dFromSubpc(subpc, { headAngle });
   if (boxInfo) {
     const [x, y, z, dx, dy, dz, rotationZ] = boxInfo;
     return {

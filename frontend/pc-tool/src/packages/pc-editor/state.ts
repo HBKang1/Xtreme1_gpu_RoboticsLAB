@@ -135,7 +135,6 @@ function getDefaultConfig(): IConfig {
         pointSize: 0.1,
         heightRange: [-10000, 10000],
         groundEnable: true,
-        hideGround: false,
         // render
         edgeColor: ['#000dff', '#ff0000'],
         singleColor: '#87abff',

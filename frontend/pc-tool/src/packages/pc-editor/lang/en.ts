@@ -87,9 +87,6 @@ const en = {
     warnObjectRepeat: 'Cannot merge: both tracks have a box in the same frame',
     warnClassTypeDiff: 'Cannot merge: the two tracks have different classes',
     warnEmptyObject: 'Nothing to split at this frame',
-    // #3 ground toggle
-    hideGround: 'Hide ground (RANSAC)',
-    groundFitFailed: 'No ground plane found — ground left visible',
     // #4 keyframe interpolation
     menuSetKeyframe: 'Set interpolation keyframe (A then B)',
     keyframeASet: 'Keyframe A set at frame {{a}}',

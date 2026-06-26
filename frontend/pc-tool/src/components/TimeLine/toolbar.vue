@@ -15,18 +15,6 @@
                     />
                 </span>
             </a-tooltip>
-            <!-- #3 ground toggle: RANSAC ground hide (view + AIBox snap only, default OFF) -->
-            <a-tooltip placement="top">
-                <template #title>{{ editor.lang('hideGround') }}</template>
-                <span @keydown.capture="(e) => e.stopPropagation()">
-                    <a-switch
-                        size="small"
-                        :checked="config.hideGround"
-                        @change="onHideGroundHandle"
-                        style="margin-right: 10px"
-                    />
-                </span>
-            </a-tooltip>
             <div v-show="disable" class="over-not-allowed"></div>
         </div>
         <div class="bar-center">
@@ -503,11 +491,6 @@
     function onAutoLoadHandle() {
         autoLoadSwitch.value?.blur();
         onAction('AutoLoad');
-    }
-
-    // --- #3 ground toggle (view + AIBox snap reference only; saved geometry unchanged) ---
-    function onHideGroundHandle(checked: boolean) {
-        editor.configManager.setHideGround(checked);
     }
 
     // --- #4 keyframe interpolation (fill empty/fallback frames between two keyframes) ---

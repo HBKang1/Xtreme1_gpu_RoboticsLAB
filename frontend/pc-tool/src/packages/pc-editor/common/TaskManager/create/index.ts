@@ -117,9 +117,6 @@ export default class CreateTask {
     headAngle: number,
     deNoise = true,
     heightRange = [-Infinity, Infinity],
-    // #3 ground toggle: optional RANSAC ground plane (a,b,c,d). When present the
-    // worker snaps to this plane instead of the fixed-z road heuristic.
-    groundPlane: { a: number; b: number; c: number; d: number } | null = null,
   ) {
     const float32Array = pc.array as Float32Array;
     const buffer = float32Array.buffer.slice(0);
@@ -132,7 +129,6 @@ export default class CreateTask {
         matrix: matrix.toArray(),
         headAngle,
         deNoise,
-        groundPlane,
       },
       [buffer],
     );

@@ -472,7 +472,7 @@ class ObjectBox {
 
   box3dFromSubpc(
     subpc,
-    { headAngle = null, minDistance = 0.5, roadGap = 0.1, minFilterPoints = 100, groundPlane = null } = {},
+    { headAngle = null, minDistance = 0.5, roadGap = 0.1, minFilterPoints = 100 } = {},
   ) {
     // 从子点云中得到带方向的3d框
     //
@@ -492,18 +492,7 @@ class ObjectBox {
       maxY = ys.max();
     const box2d = [(minX + maxX) / 2, (minY + maxY) / 2, maxX - minX, maxY - minY, 0.0];
 
-    // #3 ground toggle: when a RANSAC ground plane is supplied, snap excludes points
-    // below the fitted plane (z at the box centre) instead of the fixed-z road
-    // heuristic. View/snap reference only — saved geometry is untouched.
-    let roadZ;
-    if (groundPlane && Math.abs(groundPlane.c) > 1e-6) {
-      const cx = box2d[0];
-      const cy = box2d[1];
-      const planeZ = -(groundPlane.a * cx + groundPlane.b * cy + groundPlane.d) / groundPlane.c;
-      roadZ = planeZ + roadGap;
-    } else {
-      roadZ = this.maxZFromRoad(box2d) + roadGap;
-    }
+    const roadZ = this.maxZFromRoad(box2d) + roadGap;
 
     const subPcAbove = [];
     for (let i = 0; i < subpc.shape[0]; i++) {

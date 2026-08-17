@@ -411,7 +411,9 @@
   const info = ref<DatasetListItem>();
   const start = ref<Nullable<Dayjs>>(null);
   const end = ref<Nullable<Dayjs>>(null);
-  const showAnnotation = ref<boolean>(false);
+  // 기본 켜짐: 스위치가 Display 탭 안에 숨어 있어 모델 실행 결과가 안 보인다는
+  // 오해를 부른다. 결과가 없으면 어차피 아무것도 안 그려지므로 켠 채로 시작한다.
+  const showAnnotation = ref<boolean>(true);
   const name = ref<string>('');
   const sortField = ref<SortFieldEnum | undefined>(SortFieldEnum.NAME);
   const sortType = ref<SortTypeEnum>(SortTypeEnum.ASC);
@@ -508,6 +510,9 @@
 
       return result;
     });
+    // 목록이 늦게 도착하므로 여기서 한 번 더 전체 선택해 준다.
+    // (showAnnotation 기본 켜짐 + Results 미선택이면 소스 필터가 비어 헷갈린다)
+    if (showAnnotation.value) showAnnotationChange(true);
   };
   const loadMore = () => {
     if (canload.value) {

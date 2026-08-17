@@ -55,3 +55,11 @@ __pycache__/
 /training/fov_Zenix_*.json
 # stray nested OMC state dirs (repo-root .omc is already ignored)
 **/.omc/
+
+### generated analysis reports at repo root (not source) ###
+/autolabel-feature-recommendations.html
+/batch-autolabel-implementation-report.html
+/code-review-report.html
+/repo-overview.html
+# per-machine Claude Code settings
+.claude/settings.local.json

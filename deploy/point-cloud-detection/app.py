@@ -8,6 +8,7 @@ import io
 import re
 import requests
 from os.path import join, dirname, abspath
+import os
 import gc
 
 # tracking parameters (initial values; tune during Zenix validation)
@@ -209,7 +210,8 @@ def download_and_clean(pcd_url: str, t=None):
 
     # remove low-intensity points (snow noise): raw intensity 0,1,2
     # guard: pcds without intensity field load as (N, 3) — skip filtering
-    if pc.shape[1] >= 4:
+    # ponytail: outdoor snow-noise filter; disable for indoor via LOW_INTENSITY_FILTER=off
+    if pc.shape[1] >= 4 and os.environ.get("LOW_INTENSITY_FILTER", "on") != "off":
         count4 = len(pc)
         pc = pc[pc[:, 3] > 2]
         if len(pc) < count4:

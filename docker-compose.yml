@@ -107,7 +107,7 @@ services:
     image: basicai/xtreme1-pcd-tools
     pull_policy: always
     ports:
-      - 8295:5000
+      - 8296:5000
   image-vect-visualization:
     image: basicai/xtreme1-image-vect-visualization
     pull_policy: always
@@ -146,13 +146,37 @@ services:
       - ./training/cfgs/zenix_dataset.yaml:/app/pcdet_open/cfgs/dataset_configs/zenix_dataset.yaml:ro
       - ./voxelnext_zenix_ft.pth:/app/voxelnext_zenix_ft.pth:ro
       - ./training/cfgs/voxelnext_zenix.yaml:/app/pcdet_open/cfgs/zenix_models/voxelnext_zenix.yaml:ro
-    # train/serve intensity 일치: 변환기 raw/255 고정 스케일과 동일하게 서빙도 적용
+      # 실내 보행자 PointPillars (JRDB pretrain + Caterpie 실내 finetune, 1클래스, raw intensity)
+      - ./pointpillar_caterpie_ft.pth:/app/pointpillar_caterpie_ft.pth:ro
+      - ./training/cfgs/pointpillar_caterpie.yaml:/app/pcdet_open/cfgs/custom_models/pointpillar_caterpie.yaml:ro
+    # 이 서비스(8293, DB model id=1) = Zenix VoxelNeXt (실외, intensity raw/255, 저반사 필터 ON)
     environment:
       - INTENSITY_NORM=fixed255
-    # 모델 변경: --model centerpoint (이미지 내장 ckpt, 마운트 불필요) | transfusion | voxelnext
-    # 커스텀(파인튜닝) 모델: --cfg <yaml> --ckpt <pth> 로 직접 지정
-    # 롤백: 아래 entrypoint를 ["python","app.py","--model","voxelnext"]로 되돌리고 environment 제거
+    # 모델 변경: --model centerpoint | transfusion | voxelnext, 커스텀은 --cfg/--ckpt
     entrypoint: ["python", "app.py", "--cfg", "cfgs/zenix_models/voxelnext_zenix.yaml", "--ckpt", "/app/voxelnext_zenix_ft.pth"]
+
+  # ── 실내 보행자 PointPillars (Caterpie) — 별도 컨테이너/포트(8296)로 Zenix와 동시 운용 ──
+  # DB model "Caterpie" 의 url = http://point-cloud-object-detection-caterpie:5000/pointCloud/recognition
+  point-cloud-object-detection-caterpie:
+    image: kanghanbin/my-custom-xtreme1:v5
+    ports:
+      - 8296:5000
+    # ponytail: 부하 문제로 기본 model 프로필에서 분리, 필요 시 --profile model-caterpie 로만 기동
+    profiles:
+      - model-caterpie
+    runtime: nvidia
+    shm_size: '8gb'
+    working_dir: /app/pcdet_open
+    volumes:
+      - ./deploy/point-cloud-detection/app.py:/app/pcdet_open/app.py:ro
+      - ./deploy/point-cloud-detection/predictor.py:/app/pcdet_open/src/predictor.py:ro
+      - ./pointpillar_caterpie_ft.pth:/app/pointpillar_caterpie_ft.pth:ro
+      - ./training/cfgs/pointpillar_caterpie.yaml:/app/pcdet_open/cfgs/custom_models/pointpillar_caterpie.yaml:ro
+    # Caterpie: 학습이 raw intensity라 raw 통과 + 실내라 저반사(눈노이즈) 필터 OFF
+    environment:
+      - INTENSITY_NORM=raw
+      - LOW_INTENSITY_FILTER=off
+    entrypoint: ["python", "app.py", "--cfg", "cfgs/custom_models/pointpillar_caterpie.yaml", "--ckpt", "/app/pointpillar_caterpie_ft.pth"]
 volumes:
   mysql-data:
   redis-data:

@@ -35,9 +35,13 @@ class DemoDataset(DatasetTemplate):
         else:
             points = points[:, :4]
 
-        if os.environ.get("INTENSITY_NORM") == "fixed255":
+        norm = os.environ.get("INTENSITY_NORM")
+        if norm == "fixed255":
             points[:, 3] = np.clip(points[:, 3] / 255.0, 0.0, 1.0)
             logging.debug('normalize intensity: fixed255 scale (raw/255, clipped to [0,1])')
+        elif norm in ("raw", "none"):
+            # model trained on unnormalized intensity (e.g. pointpillar_caterpie, raw ~0-255)
+            logging.debug('intensity: raw passthrough')
         else:
             _min, _max = points[:, 3].min(), points[:, 3].max()
             if _min < 0.0 or _max > 1.0:

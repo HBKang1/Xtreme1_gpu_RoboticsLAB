@@ -20,6 +20,7 @@ import ai.basic.x1.usecase.exception.UsecaseException;
 import ai.basic.x1.util.DefaultConverter;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -29,6 +30,7 @@ import org.springframework.beans.factory.annotation.Value;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -83,9 +85,26 @@ public class ImageDetectionModelHandler extends AbstractModelMessageHandler<Imag
             lambdaQueryWrapper.last("limit 1");
             var modelRunRecord = modelRunRecordDAO.getOne(lambdaQueryWrapper);
             var dataAnnotationObjectBOList = new ArrayList<DataAnnotationObjectBO>(modelResult.getObjects().size());
+            var trackNo = new AtomicInteger(1);
             modelResult.getObjects().forEach(o -> {
+                // ObjectBO 를 그대로 직렬화하면 points 가 최상위에 놓여 image-tool 이 읽지 못한다.
+                // 툴은 obj.contour.points 를 보고(result-request.convertObject2Annotate), 비어 있으면
+                // 그 객체를 조용히 버린다. 신뢰도도 modelConfidence 키에서 읽는다.
+                // 포인트 클라우드 결과와 동일한 모양으로 맞춰 저장한다.
+                var classAttributes = JSONUtil.createObj()
+                        .set("id", IdUtil.fastSimpleUUID())
+                        .set("type", o.getType())
+                        .set("contour", JSONUtil.createObj().set("points", o.getPoints()))
+                        .set("modelClass", o.getModelClass())
+                        .set("modelConfidence", o.getConfidence())
+                        .set("trackId", IdUtil.fastSimpleUUID())
+                        .set("trackName", String.valueOf(trackNo.getAndIncrement()))
+                        .set("sourceId", modelRunRecord.getId())
+                        .set("sourceType", DataAnnotationObjectSourceTypeEnum.MODEL)
+                        .set("version", 0)
+                        .set("classValues", List.of());
                 var dataAnnotationObjectBO = DataAnnotationObjectBO.builder()
-                        .datasetId(modelMessage.getDatasetId()).dataId(modelResult.getDataId()).classAttributes(JSONUtil.parseObj(o))
+                        .datasetId(modelMessage.getDatasetId()).dataId(modelResult.getDataId()).classAttributes(classAttributes)
                         .sourceType(DataAnnotationObjectSourceTypeEnum.MODEL).sourceId(modelRunRecord.getId()).build();
                 dataAnnotationObjectBOList.add(dataAnnotationObjectBO);
             });

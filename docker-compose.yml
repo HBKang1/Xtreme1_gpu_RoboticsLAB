@@ -177,6 +177,50 @@ services:
       - INTENSITY_NORM=raw
       - LOW_INTENSITY_FILTER=off
     entrypoint: ["python", "app.py", "--cfg", "cfgs/custom_models/pointpillar_caterpie.yaml", "--ckpt", "/app/pointpillar_caterpie_ft.pth"]
+
+  # ── YOLO26 2D 이미지 검출 (Zenix Day 파인튜닝, vehicle/pedestrian 2클래스) ──
+  # DB model "YOLO26 Zenix (Day)" 의 url = http://image-object-detection-yolo:5000/image/recognition
+  # 클래스 code는 체크포인트의 names(vehicle, pedestrian)와 정확히 같아야 함
+  image-object-detection-yolo:
+    build: ./deploy/image-detection
+    ports:
+      - 8297:5000
+    # You need to explicitly specify model profile to start this service.
+    profiles:
+      - model
+    runtime: nvidia
+    shm_size: '2gb'
+    volumes:
+      # 재빌드 없이 app.py 수정 → restart 로 반영
+      - ./deploy/image-detection/app.py:/app/app.py:ro
+      - /home/a/day01_2cls_kf5_best.pt:/app/weights.pt:ro
+    # imgsz는 학습(640)과 반드시 일치시킬 것
+    environment:
+      - WEIGHTS=/app/weights.pt
+      - IMGSZ=640
+      - CONF=0.25
+      - IOU=0.7
+
+  # ── YOLO26 2D 이미지 검출 (Waymo 학습, vehicle/pedestrian/cyclist 3클래스) ──
+  # DB model "YOLO26 Waymo (3cls)" 의 url = http://image-object-detection-yolo-waymo:5000/image/recognition
+  # 위 서비스와 같은 app.py 를 쓰고 weight/포트만 다르다
+  image-object-detection-yolo-waymo:
+    build: ./deploy/image-detection
+    ports:
+      - 8298:5000
+    # You need to explicitly specify model profile to start this service.
+    profiles:
+      - model
+    runtime: nvidia
+    shm_size: '2gb'
+    volumes:
+      - ./deploy/image-detection/app.py:/app/app.py:ro
+      - /home/a/waymo_best.pt:/app/weights.pt:ro
+    environment:
+      - WEIGHTS=/app/weights.pt
+      - IMGSZ=640
+      - CONF=0.25
+      - IOU=0.7
 volumes:
   mysql-data:
   redis-data:

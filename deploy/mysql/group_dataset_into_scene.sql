@@ -1,4 +1,4 @@
--- IMAGE 데이터셋의 낱장 이미지 전부를 씬 하나로 묶는다.
+-- 데이터셋의 낱장 데이터 전부를 씬 하나로 묶는다. IMAGE/LIDAR 공통.
 -- 맨 위 두 변수만 바꿔서 재사용한다.
 --
 --   docker exec -i xtreme1_gpu_roboticslab-mysql-1 \
@@ -17,9 +17,23 @@
 -- 실행 이력:
 --   dataset_id=73 Zenix_Snow_Day_04 -> scene_Zenix_Snow_Day_04 (1,240 frames)
 --   dataset_id=69 Zenix_Snow_Day_00 -> scene_Zenix_Snow_Day_00 (2,603 frames)
+--   dataset_id=79 Caterpie_YOLO_Finetuniing -> scene_Caterpie_YOLO_Finetuniing (1,666 frames)
+--   dataset_id=111 rough_152141 -> scene_rough_152141 (446 frames, LIDAR_FUSION)
+--   dataset_id=112 rough_152745 -> scene_rough_152745 (370 frames, LIDAR_FUSION)
+--   dataset_id=113 rough_154627 -> scene_rough_154627 (366 frames, LIDAR_FUSION)
+--
+-- 111~113 은 업로드 때 scene_ 폴더로 감싸지 않아 낱장으로 들어온 것들이다. 세 개를
+-- 한 번에 돌리려면 @dsid/@sname 을 바꿔 가며 세 번 실행한다:
+--   for pair in "111:rough_152141" "112:rough_152745" "113:rough_154627"; do
+--     ds="${pair%%:*}"; nm="${pair##*:}"
+--     sed -e "s|^SET @dsid = .*|SET @dsid = $ds;|" \
+--         -e "s|^SET @sname = .*|SET @sname = 'scene_$nm';|" \
+--         deploy/mysql/group_dataset_into_scene.sql \
+--     | docker exec -i xtreme1_gpu_roboticslab-mysql-1 mysql -uroot -pImOxO8Lz xtreme1
+--   done
 
-SET @dsid = 69;
-SET @sname = 'scene_Zenix_Snow_Day_00';
+SET @dsid = 113;
+SET @sname = 'scene_rough_154627';
 
 START TRANSACTION;
 

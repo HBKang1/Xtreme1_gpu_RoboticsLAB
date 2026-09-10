@@ -8,7 +8,7 @@
 -- 주의: 씬 단위로 진행 중인 어노테이션 기록(data_annotation_record / data_edit)이
 -- 있으면 먼저 정리할 것. 씬을 지우면 그 기록이 가리키는 sceneId 가 사라진다.
 
-SET @dsid = 69;
+SET @dsid = 113;
 
 START TRANSACTION;
 
